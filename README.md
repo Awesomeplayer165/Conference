@@ -6,10 +6,6 @@ one viewer, with no simulcast, transcoding, audio, or data channels. The
 end-to-end browser/SFU capability intersection prefers AV1 and falls back to
 H.264 packetization mode 1.
 
-The implementation follows
-[the staged roadmap](.cursor/plans/native_screen_share_49129186.plan.md). Each
-stage is implemented and reviewed independently.
-
 ## Prerequisites
 
 - Bun 1.3.6 or newer
@@ -206,41 +202,3 @@ The client still reports H.265 send/receive capability when a browser exposes
 it, but Stage 3 will not select it or claim it works end to end. The active
 preference is therefore AV1, then H.264. H.265 can be inserted between them only
 after the SFU can create and route an H.265 producer/consumer.
-
-## Stage 3 qualification
-
-Run the Stage 3 telemetry scenario for all nine current desktop
-Chrome/Firefox/Safari sender-to-viewer pairings. For each run, retain JSONL,
-verify the first and steady-state one-second samples, stop/rejoin once, and
-record a clean-network latency/cadence baseline. A 120 FPS request is a
-capability tier, not a guarantee: compare reported capture FPS with measured
-encode, decode, and presentation FPS to locate the limiting stage.
-
-The provisional P50 ≤250 ms and P95 ≤500 ms values are investigation thresholds
-until those browser baselines exist. A high-speed-camera recording remains the
-glass-to-glass ground truth.
-
-### Current local qualification
-
-- Chromium AV1, 3024×1964 at 60 FPS: 60 encode FPS, 60 decode FPS, native
-  dimensions, about 20.3 Mbps actual media, 32.2 Mbps encoder target, 33.7 Mbps
-  available outgoing bitrate, UDP, and zero packet loss.
-- Chromium forced H.264, 1280×720 at 60 FPS: 59 encode FPS, 60 decode FPS, about
-  7.4 Mbps actual media, average QP 12.15, UDP, and zero packet loss.
-- Firefox headless AV1 and forced H.264 both connect, encode, decode, and render
-  through the automatically advertised LAN candidate. The synthetic headless
-  canvas scheduler measured roughly 36–40 FPS, so foreground native-capture and
-  real Firefox↔Chrome pairing remain manual qualification items.
-
-These runs prove the Chrome path and the repaired Firefox ICE/media path; they
-do not close the full nine-pairing Safari/Firefox/Chrome soak gate. Stage 3
-remains in progress until those manual runs and retained 15-minute artifacts
-are complete.
-
-## Stage boundaries
-
-- Stage 4: fixed-geometry bitrate-cap experiments and major policy decision gate
-
-Stage 4 intentionally excludes OCR. It uses encoded geometry/FPS, bitrate, QP
-when available, drops/freezes, perceptual comparisons against deterministic
-patterns, and structured human inspection.
