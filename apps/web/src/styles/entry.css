@@ -1,0 +1,157 @@
+.session-entry {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(340px, 0.75fr);
+  gap: clamp(2rem, 7vw, 6rem);
+  align-items: center;
+  min-height: calc(100vh - 10rem);
+  padding: 4rem clamp(0rem, 3vw, 2rem);
+}
+
+.session-intro h1 {
+  max-width: 700px;
+  margin-bottom: 1.25rem;
+  color: #f4f5f7;
+  font-size: clamp(2.5rem, 6vw, 5.2rem);
+  font-weight: 620;
+  letter-spacing: -0.055em;
+  line-height: 0.99;
+}
+
+.eyebrow {
+  margin-bottom: 0.6rem;
+  color: #839bd1;
+  font-size: 0.68rem;
+  font-weight: 750;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.lede {
+  max-width: 620px;
+  margin-bottom: 0;
+  color: #949eaa;
+  font-size: 1.05rem;
+  line-height: 1.7;
+}
+
+.session-card,
+.quality-panel,
+.debug-panel {
+  border: 1px solid #272e37;
+  border-radius: 0.7rem;
+  background: #12161b;
+  box-shadow: 0 22px 60px rgb(0 0 0 / 20%);
+}
+
+.session-card {
+  padding: 1.1rem;
+}
+
+.role-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.25rem;
+  min-width: 0;
+  margin: 0;
+  padding: 0.25rem;
+  border: 1px solid #272e37;
+  border-radius: 0.55rem;
+  background: #0d1014;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.role-option,
+.role-option:hover:not(:disabled) {
+  min-height: 2.45rem;
+  border-color: transparent;
+  color: #828c98;
+  background: transparent;
+  font-size: 0.78rem;
+}
+
+.role-option-active,
+.role-option-active:hover:not(:disabled) {
+  color: #f1f3f5;
+  background: #252b33;
+}
+
+.host-code-block,
+.session-code-input {
+  display: block;
+  margin: 1.8rem 0 1.25rem;
+}
+
+.field-label,
+label {
+  color: #929ca8;
+  font-size: 0.76rem;
+  font-weight: 650;
+}
+
+.session-code {
+  display: block;
+  margin-top: 0.55rem;
+  color: #f5f6f7;
+  font-size: clamp(2rem, 5vw, 3.15rem);
+  font-weight: 580;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.11em;
+}
+
+.host-code-block p {
+  margin: 0.65rem 0 0;
+  color: #818b97;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.session-code-input input {
+  height: 4.2rem;
+  font-size: 1.65rem;
+  font-weight: 620;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.primary-action {
+  width: 100%;
+}
+
+.inline-primary {
+  width: auto;
+  margin-top: 0.6rem;
+}
+
+.entry-status {
+  min-height: 1.25rem;
+  margin: 0.9rem 0 0;
+  color: #7f8996;
+  font-size: 0.77rem;
+  text-align: center;
+}
+
+.status-error {
+  color: #ec8d86;
+}
+
+.inline-actions,
+.session-strip-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.inline-actions {
+  margin-top: 1rem;
+}

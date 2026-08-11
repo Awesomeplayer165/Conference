@@ -1,0 +1,208 @@
+:root {
+  color: #e7e9ed;
+  background: #0b0d10;
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  background: #0b0d10;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+  background: #0b0d10;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+button {
+  min-height: 2.75rem;
+  padding: 0.7rem 1rem;
+  border: 1px solid #4f72c9;
+  border-radius: 0.5rem;
+  color: #fff;
+  background: #315fb9;
+  font-weight: 650;
+  cursor: pointer;
+  transition:
+    background-color 140ms ease,
+    border-color 140ms ease,
+    color 140ms ease;
+}
+
+button:hover:not(:disabled) {
+  border-color: #6f90df;
+  background: #3b6bc8;
+}
+
+button.secondary {
+  border-color: #3a424d;
+  color: #e7e9ed;
+  background: #1b2027;
+}
+
+button.secondary:hover:not(:disabled),
+button.quiet:hover:not(:disabled) {
+  border-color: #56616f;
+  background: #252b33;
+}
+
+button.quiet {
+  border-color: transparent;
+  color: #aeb6c2;
+  background: transparent;
+}
+
+button.stop-action {
+  border-color: #67403f;
+  color: #ffc9c4;
+  background: #321d1c;
+}
+
+button.compact {
+  min-height: 2.25rem;
+  padding: 0.45rem 0.75rem;
+  font-size: 0.78rem;
+}
+
+button:disabled {
+  border-color: #2a3038;
+  color: #68717e;
+  background: #171b20;
+  cursor: not-allowed;
+}
+
+input,
+select {
+  width: 100%;
+  min-height: 2.75rem;
+  margin-top: 0.45rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid #343c47;
+  border-radius: 0.45rem;
+  outline: none;
+  color: #f3f4f6;
+  background: #11151a;
+}
+
+input:focus,
+select:focus {
+  border-color: #6688d6;
+  box-shadow: 0 0 0 3px rgb(79 114 201 / 18%);
+}
+
+input:disabled,
+select:disabled {
+  color: #7e8793;
+  background: #171b20;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin-top: 0;
+}
+
+.app-shell {
+  width: min(1180px, calc(100% - 2.5rem));
+  margin: 0 auto;
+  padding: 1.5rem 0 4rem;
+}
+
+.app-shell-active {
+  width: min(1500px, calc(100% - 2.5rem));
+}
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.25rem;
+  min-height: 3.75rem;
+  padding-bottom: 1.25rem;
+  border-bottom: 1px solid #242a32;
+}
+
+.brand-lockup {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.brand-mark {
+  display: grid;
+  width: 2rem;
+  height: 2rem;
+  place-items: center;
+  border: 1px solid #4b5562;
+  border-radius: 0.35rem;
+  color: #f6f7f9;
+  background: #20262e;
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
+.brand-name,
+.brand-description {
+  margin: 0;
+}
+
+.brand-name {
+  color: #f6f7f9;
+  font-size: 0.95rem;
+  font-weight: 720;
+  letter-spacing: -0.01em;
+}
+
+.brand-description {
+  margin-top: 0.12rem;
+  color: #7f8996;
+  font-size: 0.72rem;
+}
+
+.connection-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2rem;
+  padding: 0.35rem 0.65rem;
+  border: 1px solid #313843;
+  border-radius: 999px;
+  color: #aeb6c2;
+  background: #14181e;
+  font-size: 0.76rem;
+  font-weight: 650;
+}
+
+.connection-dot,
+.live-dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: #7a8491;
+}
+
+.connection-state-joined .connection-dot,
+.connection-state-connecting .connection-dot,
+.live-dot {
+  background: #49a879;
+  box-shadow: 0 0 0 3px rgb(73 168 121 / 14%);
+}
+
+.connection-state-error .connection-dot {
+  background: #d76661;
+}

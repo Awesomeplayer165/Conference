@@ -1,0 +1,100 @@
+.debug-panel {
+  margin-top: 0.9rem;
+  box-shadow: none;
+}
+
+.debug-panel > summary,
+.statistics-panel > summary,
+.capture-report > summary {
+  padding: 0.9rem 1rem;
+  color: #9ca6b2;
+  font-size: 0.78rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.debug-panel-content {
+  padding: 0 1rem 1rem;
+  border-top: 1px solid #252c35;
+}
+
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 1rem;
+}
+
+.checkbox-label input {
+  width: 1rem;
+  min-height: 1rem;
+  margin: 0;
+}
+
+.capture-report,
+.statistics-panel {
+  margin-top: 1rem;
+  border: 1px solid #29313a;
+  border-radius: 0.45rem;
+  background: #0f1318;
+}
+
+.capture-report dl {
+  margin: 0;
+  padding: 0 1rem 1rem;
+}
+
+.warnings {
+  color: #e48780;
+  font-size: 0.75rem;
+}
+
+.capture-report .report-note,
+.capture-report .warnings {
+  margin: 0;
+  padding: 0 1rem 1rem;
+}
+
+.statistics-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  padding: 0 0.75rem 0.75rem;
+}
+
+.statistics-card {
+  padding: 0.9rem;
+  border: 1px solid #252c35;
+  border-radius: 0.4rem;
+  background: #11151a;
+}
+
+.statistics-card h3 {
+  margin-bottom: 0.75rem;
+  color: #d9dde2;
+  font-size: 0.85rem;
+}
+
+.statistics-card dl {
+  margin: 0;
+}
+
+.statistic-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.38rem 0;
+  border-top: 1px solid #222831;
+  font-size: 0.7rem;
+}
+
+.statistic-row dt {
+  color: #737d89;
+}
+
+.statistic-row dd {
+  margin: 0;
+  color: #cdd2d8;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}

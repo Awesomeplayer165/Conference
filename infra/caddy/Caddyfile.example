@@ -1,0 +1,19 @@
+# Merge this site block into an existing Caddy configuration.
+# Replace the site address, static root, and backend address for the server.
+screen-share.example.com {
+	encode zstd gzip
+
+	handle /ws {
+		reverse_proxy 127.0.0.1:4443
+	}
+
+	handle /health {
+		reverse_proxy 127.0.0.1:4443
+	}
+
+	handle {
+		root * /srv/screen-share/web
+		try_files {path} /index.html
+		file_server
+	}
+}

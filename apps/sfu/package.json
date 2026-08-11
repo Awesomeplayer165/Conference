@@ -1,0 +1,16 @@
+{
+  "name": "@conference/sfu",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun src/index.ts",
+    "start": "bun src/index.ts",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@conference/protocol": "workspace:*",
+    "hono": "^4.13.1",
+    "mediasoup": "^3.24.2"
+  },
+  "devDependencies": {}
+}

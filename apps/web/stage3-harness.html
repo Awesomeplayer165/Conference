@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Stage 3 Browser Harness</title>
+  </head>
+  <body>
+    <main>
+      <h1>Stage 3 Browser Harness</h1>
+      <p>Uses a deterministic canvas track; it never requests screen-capture permission.</p>
+      <button id="run" type="button">Run codec telemetry probe</button>
+      <pre id="result">Not run</pre>
+      <video id="remote" autoplay muted playsinline></video>
+    </main>
+    <script type="module" src="/src/stage3Harness.ts"></script>
+  </body>
+</html>

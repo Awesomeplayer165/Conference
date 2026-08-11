@@ -1,0 +1,242 @@
+.session-workspace {
+  padding-top: 1rem;
+}
+
+.session-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  min-height: 3.8rem;
+  margin-bottom: 0.9rem;
+  padding: 0.65rem 0.8rem 0.65rem 1rem;
+  border: 1px solid #252c35;
+  border-radius: 0.55rem;
+  background: #11151a;
+}
+
+.session-strip > div:first-child {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+}
+
+.session-strip strong {
+  color: #f4f5f7;
+  font-size: 1rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.08em;
+}
+
+.session-strip > p {
+  flex: 1;
+  margin: 0;
+  color: #8b95a1;
+  font-size: 0.8rem;
+  text-align: center;
+}
+
+.video-panel {
+  overflow: hidden;
+  border: 1px solid #252c35;
+  border-radius: 0.65rem;
+  background: #0f1216;
+  box-shadow: 0 24px 70px rgb(0 0 0 / 24%);
+}
+
+.video-panel-heading,
+.quality-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.video-panel-heading {
+  min-height: 4.6rem;
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid #242a32;
+}
+
+.video-panel-heading .eyebrow,
+.quality-heading .eyebrow {
+  margin-bottom: 0.25rem;
+}
+
+.video-panel-heading h2,
+.quality-heading h2 {
+  margin: 0;
+  color: #eceef1;
+  font-size: 1rem;
+  font-weight: 650;
+}
+
+.video-stage {
+  position: relative;
+  display: grid;
+  min-height: clamp(420px, 67vh, 920px);
+  overflow: hidden;
+  place-items: center;
+  color: #8b95a1;
+  background: #080a0d;
+}
+
+.video-stage-active {
+  min-height: 0;
+}
+
+.capture-video {
+  display: block;
+  width: 100%;
+  max-height: calc(100vh - 11rem);
+  object-fit: contain;
+  background: #050607;
+}
+
+.capture-video.hidden {
+  display: none;
+}
+
+.video-empty-state {
+  max-width: 460px;
+  padding: 3rem 1.5rem;
+  text-align: center;
+}
+
+.screen-glyph {
+  position: relative;
+  display: block;
+  width: 4.4rem;
+  height: 2.9rem;
+  margin: 0 auto 1.5rem;
+  border: 1px solid #3d4652;
+  border-radius: 0.35rem;
+  background: #12171d;
+}
+
+.screen-glyph::before,
+.screen-glyph::after {
+  position: absolute;
+  content: "";
+}
+
+.screen-glyph::before {
+  bottom: -0.8rem;
+  left: calc(50% - 0.5px);
+  width: 1px;
+  height: 0.8rem;
+  background: #3d4652;
+}
+
+.screen-glyph::after {
+  bottom: -0.85rem;
+  left: calc(50% - 1rem);
+  width: 2rem;
+  height: 1px;
+  background: #3d4652;
+}
+
+.video-empty-state h3 {
+  margin-bottom: 0.55rem;
+  color: #e3e6ea;
+  font-size: 1.15rem;
+}
+
+.video-empty-state p {
+  margin-bottom: 1rem;
+  color: #7f8996;
+  font-size: 0.86rem;
+  line-height: 1.55;
+}
+
+.telemetry-overlay {
+  position: absolute;
+  top: 0.9rem;
+  left: 0.9rem;
+  min-width: 220px;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid rgb(255 255 255 / 12%);
+  border-radius: 0.4rem;
+  color: #e8eaed;
+  background: rgb(10 12 15 / 86%);
+  box-shadow: 0 12px 35px rgb(0 0 0 / 32%);
+  backdrop-filter: blur(10px);
+}
+
+.overlay-heading {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-bottom: 0.45rem;
+  color: #bfc5cd;
+  font-size: 0.65rem;
+  font-weight: 740;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.telemetry-overlay dl {
+  margin: 0;
+}
+
+.telemetry-overlay dl > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.22rem 0;
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.telemetry-overlay dt {
+  color: #7f8996;
+}
+
+.telemetry-overlay dd {
+  margin: 0;
+  color: #edf0f3;
+}
+
+.quality-panel {
+  margin-top: 0.9rem;
+  padding: 1rem;
+}
+
+.quality-heading > p {
+  margin: 0;
+  color: #7f8996;
+  font-size: 0.78rem;
+}
+
+.quality-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.8rem;
+  margin-top: 1rem;
+}
+
+.input-with-unit {
+  position: relative;
+}
+
+.input-with-unit input {
+  padding-right: 3.7rem;
+}
+
+.input-with-unit span {
+  position: absolute;
+  right: 0.75rem;
+  bottom: 0.78rem;
+  color: #707a87;
+  font-size: 0.68rem;
+  pointer-events: none;
+}
+
+.control-note,
+.report-note,
+.debug-note {
+  margin: 0.85rem 0 0;
+  color: #747f8c;
+  font-size: 0.75rem;
+  line-height: 1.55;
+}

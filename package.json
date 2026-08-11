@@ -1,0 +1,34 @@
+{
+  "name": "conference-screen-share",
+  "private": true,
+  "type": "module",
+  "packageManager": "bun@1.3.6",
+  "workspaces": [
+    "apps/*",
+    "packages/*",
+    "tests/*"
+  ],
+  "trustedDependencies": [
+    "mediasoup"
+  ],
+  "scripts": {
+    "build": "bun run --filter @conference/web build",
+    "build:web": "bun run --filter @conference/web build",
+    "certs": "bun infra/scripts/generate-certs.mjs",
+    "dev": "bun run --filter @conference/web --filter @conference/sfu dev",
+    "dev:backend": "bun run --filter @conference/sfu dev",
+    "dev:web": "bun run --filter @conference/web dev",
+    "format": "biome format --write .",
+    "lint": "biome check .",
+    "start:backend": "bun run --filter @conference/sfu start",
+    "test": "bun test",
+    "test:watch": "bun test --watch",
+    "typecheck": "bun run --filter '*' typecheck"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.7",
+    "@types/bun": "^1.3.14",
+    "@types/node": "^26.2.0",
+    "typescript": "^7.0.2"
+  }
+}
