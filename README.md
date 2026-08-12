@@ -77,14 +77,16 @@ starting the backend:
 ```sh
 MEDIASOUP_LISTEN_IP=0.0.0.0 \
 MEDIASOUP_ANNOUNCED_ADDRESS=192.0.2.10 \
-MEDIASOUP_MIN_PORT=40000 \
-MEDIASOUP_MAX_PORT=40100 \
+MEDIASOUP_PORT=40000 \
 bun run start:backend
 ```
 
 Replace the documentation address with the server's reachable address. The
 reverse proxy handles HTTP and WebSocket signaling; WebRTC media flows directly
-to the announced address on the configured UDP or TCP media range.
+to the announced address on `MEDIASOUP_PORT`. All peer transports share one
+mediasoup WebRTC server socket, so a host, viewer, and subsequent reconnects do
+not consume separate listening ports. Publish and permit both UDP and TCP for
+that port; UDP is preferred and TCP is the fallback.
 
 ### Caddy
 
@@ -123,8 +125,9 @@ docker compose ps
 The `web` command copies the production build into `./build/web` by default
 and exits successfully. Point the existing reverse proxy's static root there.
 The backend publishes signaling on port 4443 and mediasoup media on UDP and TCP
-ports 40000–40100. Bind addresses are configurable in `.env`; apply the
-server's normal firewall and access-control policy.
+port 40000 by default. Bind addresses and the media port are configurable in
+`.env`; apply the server's normal firewall and access-control policy. Caddy only
+proxies HTTP and WebSocket signaling—it does not proxy the WebRTC media port.
 
 Stop the application backend with:
 

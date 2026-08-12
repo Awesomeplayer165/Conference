@@ -11,12 +11,11 @@ services:
       PORT: 4443
       MEDIASOUP_LISTEN_IP: 0.0.0.0
       MEDIASOUP_ANNOUNCED_ADDRESS: ${MEDIASOUP_ANNOUNCED_ADDRESS:?Set this to an address reachable by viewers}
-      MEDIASOUP_MIN_PORT: ${MEDIASOUP_MIN_PORT:-40000}
-      MEDIASOUP_MAX_PORT: ${MEDIASOUP_MAX_PORT:-40100}
+      MEDIASOUP_PORT: ${MEDIASOUP_PORT:-40000}
     ports:
       - "${BACKEND_BIND_ADDRESS:-0.0.0.0}:${BACKEND_PORT:-4443}:4443/tcp"
-      - "${MEDIASOUP_MIN_PORT:-40000}-${MEDIASOUP_MAX_PORT:-40100}:${MEDIASOUP_MIN_PORT:-40000}-${MEDIASOUP_MAX_PORT:-40100}/udp"
-      - "${MEDIASOUP_MIN_PORT:-40000}-${MEDIASOUP_MAX_PORT:-40100}:${MEDIASOUP_MIN_PORT:-40000}-${MEDIASOUP_MAX_PORT:-40100}/tcp"
+      - "${MEDIASOUP_PORT:-40000}:${MEDIASOUP_PORT:-40000}/udp"
+      - "${MEDIASOUP_PORT:-40000}:${MEDIASOUP_PORT:-40000}/tcp"
     healthcheck:
       test: ["CMD", "bun", "-e", "fetch('http://127.0.0.1:4443/health').then(r=>{if(!r.ok)throw Error(r.status)})"]
       interval: 5s

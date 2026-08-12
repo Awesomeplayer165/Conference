@@ -255,19 +255,24 @@ export class MediasoupSession {
       kind: response.consumer.kind,
       rtpParameters: response.consumer.rtpParameters as unknown as RtpParameters,
     });
-    this.#consumer = consumer;
-    this.#callbacks.onRemoteTrack(consumer.track);
-    consumer.on("transportclose", () => this.stopConsuming());
-    consumer.on("trackended", () => this.stopConsuming());
-    expectResponse(
-      await this.#request({
-        type: "media.resumeConsumer",
-        protocolVersion: PROTOCOL_VERSION,
-        requestId: requestId(),
-        consumerId: consumer.id,
-      }),
-      "media.ack",
-    );
+    try {
+      expectResponse(
+        await this.#request({
+          type: "media.resumeConsumer",
+          protocolVersion: PROTOCOL_VERSION,
+          requestId: requestId(),
+          consumerId: consumer.id,
+        }),
+        "media.ack",
+      );
+      this.#consumer = consumer;
+      this.#callbacks.onRemoteTrack(consumer.track);
+      consumer.on("transportclose", () => this.stopConsuming());
+      consumer.on("trackended", () => this.stopConsuming());
+    } catch (error) {
+      consumer.close();
+      throw error;
+    }
     const codecMimeType = consumer.rtpParameters.codecs.find(
       (codec) => !codec.mimeType.toLowerCase().endsWith("/rtx"),
     )?.mimeType;

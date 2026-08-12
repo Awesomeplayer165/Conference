@@ -1,10 +1,10 @@
 import { describe, expect, it } from "bun:test";
 import {
   defaultMediasoupListenIps,
-  fractionLostToPercent,
-  MediaService,
-  parseMediasoupPortRange,
-} from "./mediaService.js";
+  mediasoupWebRtcServerConfig,
+  parseMediasoupPort,
+} from "./mediaConfig.js";
+import { fractionLostToPercent, MediaService } from "./mediaService.js";
 
 describe("mediasoup statistics normalization", () => {
   it("converts the RTCP 8-bit loss fraction without treating one as 100 percent", () => {
@@ -53,10 +53,37 @@ describe("mediasoup ICE listen addresses", () => {
     ).toEqual(["192.168.4.210", "100.64.0.8", "127.0.0.1"]);
   });
 
-  it("validates an optional container-friendly media port range", () => {
-    expect(parseMediasoupPortRange(undefined, undefined)).toBeUndefined();
-    expect(parseMediasoupPortRange("40000", "40100")).toEqual({ min: 40_000, max: 40_100 });
-    expect(() => parseMediasoupPortRange("40100", "40000")).toThrow();
+  it("validates the shared media port", () => {
+    expect(parseMediasoupPort(undefined)).toBe(40_000);
+    expect(parseMediasoupPort("50000")).toBe(50_000);
+    expect(() => parseMediasoupPort("50000-50100")).toThrow();
+    expect(() => parseMediasoupPort("80")).toThrow();
+  });
+
+  it("uses one shared UDP/TCP port and the configured announced address", () => {
+    const configuration = mediasoupWebRtcServerConfig(
+      {
+        MEDIASOUP_LISTEN_IP: "0.0.0.0",
+        MEDIASOUP_ANNOUNCED_ADDRESS: "100.64.0.6",
+        MEDIASOUP_PORT: "50000",
+      },
+      {},
+    );
+    expect(configuration.port).toBe(50_000);
+    expect(configuration.listenInfos).toEqual([
+      {
+        protocol: "udp",
+        ip: "0.0.0.0",
+        announcedAddress: "100.64.0.6",
+        port: 50_000,
+      },
+      {
+        protocol: "tcp",
+        ip: "0.0.0.0",
+        announcedAddress: "100.64.0.6",
+        port: 50_000,
+      },
+    ]);
   });
 });
 
@@ -64,7 +91,9 @@ describe("mediasoup Stage 3 runtime", () => {
   it("starts the worker and creates a UDP/TCP transport", async () => {
     const previousListenIp = process.env.MEDIASOUP_LISTEN_IP;
     const previousAnnouncedAddress = process.env.MEDIASOUP_ANNOUNCED_ADDRESS;
+    const previousPort = process.env.MEDIASOUP_PORT;
     process.env.MEDIASOUP_LISTEN_IP = "127.0.0.1";
+    process.env.MEDIASOUP_PORT = "45679";
     delete process.env.MEDIASOUP_ANNOUNCED_ADDRESS;
     const media = await MediaService.create();
     try {
@@ -82,9 +111,16 @@ describe("mediasoup Stage 3 runtime", () => {
       );
 
       const transport = await media.createTransport("endpoint-1", "send");
+      const secondTransport = await media.createTransport("endpoint-2", "recv");
       expect(transport.iceCandidates.map((candidate) => candidate.protocol)).toContain("udp");
       expect(transport.iceCandidates.map((candidate) => candidate.protocol)).toContain("tcp");
       expect(transport.dtlsParameters.fingerprints.length).toBeGreaterThan(0);
+      expect(secondTransport.iceCandidates.map((candidate) => candidate.port)).toEqual(
+        transport.iceCandidates.map((candidate) => candidate.port),
+      );
+      expect(new Set(transport.iceCandidates.map((candidate) => candidate.port))).toEqual(
+        new Set([45_679]),
+      );
     } finally {
       media.close();
       if (previousListenIp === undefined) {
@@ -96,6 +132,11 @@ describe("mediasoup Stage 3 runtime", () => {
         delete process.env.MEDIASOUP_ANNOUNCED_ADDRESS;
       } else {
         process.env.MEDIASOUP_ANNOUNCED_ADDRESS = previousAnnouncedAddress;
+      }
+      if (previousPort === undefined) {
+        delete process.env.MEDIASOUP_PORT;
+      } else {
+        process.env.MEDIASOUP_PORT = previousPort;
       }
       await Bun.sleep(100);
     }

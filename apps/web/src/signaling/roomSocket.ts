@@ -201,13 +201,20 @@ export function openRoomConnection(options: OpenRoomConnectionOptions): WebSocke
         break;
       case "media.producerAvailable":
         if (role === "viewer") {
-          setStatusMessage("Receiving shared screen…");
+          setStatusMessage("Connecting to the shared screen…");
+          setMediaStatus("Negotiating the receive transport…");
           void getMediasoupSession()
             .consume(result.data.producerId)
+            .then(() => {
+              setStatusMessage("Receiving shared screen…");
+              publishLifecycle("media.consumer.ready");
+            })
             .catch((error: unknown) => {
-              setMediaStatus(
-                error instanceof Error ? error.message : "Could not receive screen video",
-              );
+              const message =
+                error instanceof Error ? error.message : "Could not receive screen video";
+              setMediaStatus(`Media connection failed: ${message}`);
+              setStatusMessage("Connected — the shared screen could not start");
+              publishLifecycle("media.consumer.failed");
             });
         }
         break;

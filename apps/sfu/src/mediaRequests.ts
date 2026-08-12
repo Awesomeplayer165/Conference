@@ -209,6 +209,10 @@ export async function handleMediaRequest(
     }
   } catch (error) {
     const messageText = error instanceof Error ? error.message : "Unknown media error";
+    console.error(
+      `[sfu] ${message.type} failed for ${metadata.role} endpoint ${metadata.endpointId}: ${messageText}`,
+      error,
+    );
     mediaError(
       socket,
       message.requestId,

@@ -1,4 +1,3 @@
-import { type NetworkInterfaceInfo, networkInterfaces } from "node:os";
 import { type ServerMediaStatistics, ServerMediaStatisticsSchema } from "@conference/protocol";
 import * as mediasoup from "mediasoup";
 import type {
@@ -8,9 +7,11 @@ import type {
   Router,
   RtpCapabilities,
   RtpParameters,
+  WebRtcServer,
   WebRtcTransport,
   Worker,
 } from "mediasoup/types";
+import { mediasoupWebRtcServerConfig } from "./mediaConfig.js";
 
 export type TransportDirection = "send" | "recv";
 
@@ -38,89 +39,6 @@ export interface CreatedConsumer {
   producerId: string;
   kind: "video";
   rtpParameters: RtpParameters;
-}
-
-type NetworkInterfaceMap = NodeJS.Dict<NetworkInterfaceInfo[]>;
-
-function isPrivateOrSharedIpv4(address: string): boolean {
-  const octets = address.split(".").map(Number);
-  if (octets.length !== 4 || octets.some((octet) => !Number.isInteger(octet))) {
-    return false;
-  }
-  return (
-    octets[0] === 10 ||
-    (octets[0] === 172 && (octets[1] ?? 0) >= 16 && (octets[1] ?? 0) <= 31) ||
-    (octets[0] === 192 && octets[1] === 168) ||
-    (octets[0] === 100 && (octets[1] ?? 0) >= 64 && (octets[1] ?? 0) <= 127)
-  );
-}
-
-export function defaultMediasoupListenIps(
-  interfaces: NetworkInterfaceMap = networkInterfaces(),
-): string[] {
-  const privateAddresses = Object.entries(interfaces)
-    .flatMap(([name, entries]) =>
-      (entries ?? []).map((entry) => ({
-        entry,
-        virtual: /^(bridge|utun|awdl|llw|docker|veth|lo)/i.test(name),
-      })),
-    )
-    .filter(
-      ({ entry, virtual }) =>
-        !entry.internal &&
-        entry.family === "IPv4" &&
-        isPrivateOrSharedIpv4(entry.address) &&
-        (!virtual || entry.address.startsWith("100.")),
-    )
-    .map(({ entry }) => entry.address);
-  return [...new Set([...privateAddresses, "127.0.0.1"])];
-}
-
-export function parseMediasoupPortRange(
-  minimum: string | undefined,
-  maximum: string | undefined,
-): { min: number; max: number } | undefined {
-  if (minimum === undefined && maximum === undefined) {
-    return undefined;
-  }
-  const min = Number(minimum);
-  const max = Number(maximum);
-  if (
-    !Number.isInteger(min) ||
-    !Number.isInteger(max) ||
-    min < 1_024 ||
-    max > 65_535 ||
-    min > max
-  ) {
-    throw new Error(
-      "MEDIASOUP_MIN_PORT and MEDIASOUP_MAX_PORT must define an ordered 1024-65535 range",
-    );
-  }
-  return { min, max };
-}
-
-function mediasoupListenAddresses(): Array<{ ip: string; announcedAddress?: string }> {
-  const configuredIp = process.env.MEDIASOUP_LISTEN_IP;
-  const announcedAddress = process.env.MEDIASOUP_ANNOUNCED_ADDRESS;
-  if (!configuredIp) {
-    if (announcedAddress) {
-      throw new Error(
-        "MEDIASOUP_ANNOUNCED_ADDRESS requires MEDIASOUP_LISTEN_IP to identify its bind address",
-      );
-    }
-    return defaultMediasoupListenIps().map((ip) => ({ ip }));
-  }
-  if ((configuredIp === "0.0.0.0" || configuredIp === "::") && !announcedAddress) {
-    throw new Error(
-      "A wildcard MEDIASOUP_LISTEN_IP requires MEDIASOUP_ANNOUNCED_ADDRESS for usable ICE candidates",
-    );
-  }
-  return [
-    {
-      ip: configuredIp,
-      ...(announcedAddress ? { announcedAddress } : {}),
-    },
-  ];
 }
 
 const VIDEO_RTCP_FEEDBACK = [
@@ -159,13 +77,15 @@ export function fractionLostToPercent(fractionLost: number | null): number | nul
 export class MediaService {
   readonly #worker: Worker;
   readonly #router: Router;
+  readonly #webRtcServer: WebRtcServer;
   readonly #transports = new Map<string, MediaResource<WebRtcTransport<TransportAppData>>>();
   readonly #producers = new Map<string, MediaResource<Producer>>();
   readonly #consumers = new Map<string, MediaResource<Consumer>>();
 
-  private constructor(worker: Worker, router: Router) {
+  private constructor(worker: Worker, router: Router, webRtcServer: WebRtcServer) {
     this.#worker = worker;
     this.#router = router;
+    this.#webRtcServer = webRtcServer;
   }
 
   static async create(): Promise<MediaService> {
@@ -176,10 +96,22 @@ export class MediaService {
     worker.once("died", (error) => {
       console.error("[sfu] mediasoup worker died", error);
     });
-    const router = await worker.createRouter({
-      mediaCodecs: ROUTER_MEDIA_CODECS,
-    });
-    return new MediaService(worker, router);
+    try {
+      const router = await worker.createRouter({
+        mediaCodecs: ROUTER_MEDIA_CODECS,
+      });
+      const configuration = mediasoupWebRtcServerConfig();
+      const webRtcServer = await worker.createWebRtcServer({
+        listenInfos: configuration.listenInfos,
+      });
+      console.info(
+        `[sfu] Shared WebRTC server ready on UDP/TCP port ${configuration.port} (${configuration.listenInfos.length} candidates)`,
+      );
+      return new MediaService(worker, router, webRtcServer);
+    } catch (error) {
+      worker.close();
+      throw error;
+    }
   }
 
   get routerRtpCapabilities(): RtpCapabilities {
@@ -190,16 +122,8 @@ export class MediaService {
     endpointId: string,
     direction: TransportDirection,
   ): Promise<CreatedTransport> {
-    const addresses = mediasoupListenAddresses();
-    const portRange = parseMediasoupPortRange(
-      process.env.MEDIASOUP_MIN_PORT,
-      process.env.MEDIASOUP_MAX_PORT,
-    );
     const transport = await this.#router.createWebRtcTransport<TransportAppData>({
-      listenInfos: addresses.flatMap((address) => [
-        { protocol: "udp" as const, ...address, ...(portRange ? { portRange } : {}) },
-        { protocol: "tcp" as const, ...address, ...(portRange ? { portRange } : {}) },
-      ]),
+      webRtcServer: this.#webRtcServer,
       enableUdp: true,
       enableTcp: true,
       preferUdp: true,
@@ -210,6 +134,12 @@ export class MediaService {
     this.#transports.set(transport.id, { endpointId, value: transport });
     transport.observer.once("close", () => {
       this.#transports.delete(transport.id);
+    });
+    transport.on("icestatechange", (state) => {
+      console.info(`[sfu] ${direction} transport ${transport.id} ICE ${state}`);
+    });
+    transport.on("dtlsstatechange", (state) => {
+      console.info(`[sfu] ${direction} transport ${transport.id} DTLS ${state}`);
     });
     return {
       id: transport.id,
@@ -382,6 +312,7 @@ export class MediaService {
   }
 
   close(): void {
+    this.#webRtcServer.close();
     this.#worker.close();
   }
 
