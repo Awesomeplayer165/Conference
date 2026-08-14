@@ -101,7 +101,7 @@ describe("capture policy", () => {
   });
 
   it("maps declared content modes to portable hints", () => {
-    expect(contentHintForMode("auto")).toBe("");
+    expect(contentHintForMode("auto")).toBe("motion");
     expect(contentHintForMode("detail")).toBe("detail");
     expect(contentHintForMode("motion")).toBe("motion");
   });

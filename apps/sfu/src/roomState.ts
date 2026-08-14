@@ -1,5 +1,6 @@
 import {
   type ClientMessage,
+  type HdrMetadata,
   PROTOCOL_VERSION,
   type Role,
   type ServerMessage,
@@ -8,7 +9,7 @@ import {
 } from "@conference/protocol";
 import type { WSContext } from "hono/ws";
 import type { MediaService } from "./mediaService.js";
-import { selectVideoCodec } from "./videoCodecs.js";
+import { compatibleVideoCodecs, selectVideoCodec } from "./videoCodecs.js";
 
 interface PeerConnection {
   endpointId: string;
@@ -22,6 +23,8 @@ export interface RoomState {
   host?: PeerConnection;
   viewer?: PeerConnection;
   producerId?: string;
+  producerCodec?: VideoCodec;
+  producerHdrMetadata?: HdrMetadata;
 }
 
 export interface ConnectionMetadata {
@@ -89,6 +92,13 @@ function selectedVideoCodec(room: RoomState): VideoCodec | null {
   return selectVideoCodec(room.host.videoCodecs, room.viewer.videoCodecs);
 }
 
+function availableVideoCodecs(room: RoomState): VideoCodec[] {
+  if (!room.host || !room.viewer) {
+    return [];
+  }
+  return compatibleVideoCodecs(room.host.videoCodecs, room.viewer.videoCodecs);
+}
+
 export function handleJoin(
   socket: WSContext,
   message: Extract<ClientMessage, { type: "room.join" }>,
@@ -135,6 +145,7 @@ export function handleJoin(
     endpointId: message.endpointId,
     peerPresent: Boolean(other),
     selectedVideoCodec: codec,
+    compatibleVideoCodecs: availableVideoCodecs(room),
   });
 
   if (other) {
@@ -145,6 +156,7 @@ export function handleJoin(
       peerRole: message.role,
       present: true,
       selectedVideoCodec: codec,
+      compatibleVideoCodecs: availableVideoCodecs(room),
     });
   }
   if (message.role === "viewer" && room.producerId) {
@@ -152,6 +164,8 @@ export function handleJoin(
       type: "media.producerAvailable",
       protocolVersion: PROTOCOL_VERSION,
       producerId: room.producerId,
+      ...(room.producerCodec ? { codec: room.producerCodec } : {}),
+      ...(room.producerHdrMetadata ? { hdrMetadata: room.producerHdrMetadata } : {}),
     });
   }
 }
@@ -175,6 +189,8 @@ export function handleLeave(
   const closedProducerId = metadata.role === "host" ? room.producerId : undefined;
   if (metadata.role === "host") {
     delete room.producerId;
+    delete room.producerCodec;
+    delete room.producerHdrMetadata;
   }
   clearPeer(room, metadata.role);
   const other = peerForRole(room, oppositeRole(metadata.role));
@@ -186,6 +202,7 @@ export function handleLeave(
       peerRole: metadata.role,
       present: false,
       selectedVideoCodec: null,
+      compatibleVideoCodecs: [],
     });
     if (closedProducerId) {
       send(other.socket, {

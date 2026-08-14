@@ -127,7 +127,8 @@ export async function createEndpoint(
 
 export async function waitForProducer(events: ServerMessage[]): Promise<string> {
   for (let attempt = 0; attempt < 100; attempt += 1) {
-    const event = events.find((candidate) => candidate.type === "media.producerAvailable");
+    const index = events.findIndex((candidate) => candidate.type === "media.producerAvailable");
+    const event = index < 0 ? undefined : events.splice(index, 1)[0];
     if (event?.type === "media.producerAvailable") {
       return event.producerId;
     }

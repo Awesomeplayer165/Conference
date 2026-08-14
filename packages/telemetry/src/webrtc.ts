@@ -51,6 +51,7 @@ function stringValue(record: StatsRecord | null, name: string): string | null {
 function videoRecord(
   records: readonly StatsRecord[],
   recordsById: ReadonlyMap<string, StatsRecord>,
+  previous: ReadonlyMap<string, PreviousStats>,
   type: "outbound-rtp" | "inbound-rtp" | "remote-inbound-rtp",
 ): StatsRecord | null {
   const candidates = records.filter((record) => {
@@ -67,10 +68,27 @@ function videoRecord(
     return !stringValue(codec, "mimeType")?.toLowerCase().endsWith("/rtx");
   });
   const bytesName = type === "outbound-rtp" ? "bytesSent" : "bytesReceived";
+  const framesName = type === "outbound-rtp" ? "framesEncoded" : "framesDecoded";
+  const activityScore = (record: StatsRecord): number => {
+    const prior = previous.get(record.id);
+    const explicitlyActive = record.active === true ? 1 : 0;
+    if (!prior) {
+      // A replacement SSRC starts with small cumulative counters. Prefer it over a
+      // high-byte, stopped SSRC retained by Chrome after producer replacement.
+      return explicitlyActive + 4;
+    }
+    const bytesChange = delta(record, prior, bytesName) ?? 0;
+    const framesChange = delta(record, prior, framesName) ?? 0;
+    return explicitlyActive + (bytesChange > 0 ? 2 : 0) + (framesChange > 0 ? 2 : 0);
+  };
   return (
-    candidates.sort(
-      (left, right) => (numberValue(right, bytesName) ?? 0) - (numberValue(left, bytesName) ?? 0),
-    )[0] ?? null
+    candidates.sort((left, right) => {
+      const activityDifference = activityScore(right) - activityScore(left);
+      if (activityDifference !== 0) {
+        return activityDifference;
+      }
+      return right.timestamp - left.timestamp;
+    })[0] ?? null
   );
 }
 
@@ -134,12 +152,12 @@ export class WebRtcStatsNormalizer {
       });
     }
     const records = [...recordsById.values()];
-    const outbound = videoRecord(records, recordsById, "outbound-rtp");
-    const inbound = videoRecord(records, recordsById, "inbound-rtp");
+    const outbound = videoRecord(records, recordsById, this.#previous, "outbound-rtp");
+    const inbound = videoRecord(records, recordsById, this.#previous, "inbound-rtp");
     const linkedRemoteId = stringValue(outbound, "remoteId");
     const remoteInbound = linkedRemoteId
       ? (recordsById.get(linkedRemoteId) ?? null)
-      : videoRecord(records, recordsById, "remote-inbound-rtp");
+      : videoRecord(records, recordsById, this.#previous, "remote-inbound-rtp");
     const media = outbound ?? inbound;
     if (!media) {
       return {};
@@ -315,6 +333,7 @@ export class WebRtcStatsNormalizer {
           return jitter === null ? null : jitter * 1_000;
         })(),
       ),
+      jitterBufferDelayMs: inbound ? rounded(jitterBufferMs) : null,
       packetLossPercent: rounded(packetLossPercent, 3),
       packetsLost: cumulativePackets > 0 ? numberValue(lossRecord, "packetsLost") : null,
       nackCount: numberValue(media, "nackCount"),

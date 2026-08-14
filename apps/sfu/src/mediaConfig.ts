@@ -2,6 +2,7 @@ import { type NetworkInterfaceInfo, networkInterfaces } from "node:os";
 import type { TransportListenInfo } from "mediasoup/types";
 
 export const DEFAULT_MEDIASOUP_PORT = 40_000;
+export const DEFAULT_MEDIASOUP_SOCKET_BUFFER_BYTES = 4 * 1024 * 1024;
 
 type NetworkInterfaceMap = NodeJS.Dict<NetworkInterfaceInfo[]>;
 type MediaEnvironment = NodeJS.ProcessEnv;
@@ -51,6 +52,17 @@ export function parseMediasoupPort(value: string | undefined): number {
   return port;
 }
 
+export function parseSocketBufferBytes(value: string | undefined): number {
+  if (value === undefined || value.trim() === "") {
+    return DEFAULT_MEDIASOUP_SOCKET_BUFFER_BYTES;
+  }
+  const bytes = Number(value);
+  if (!Number.isInteger(bytes) || bytes < 256 * 1024 || bytes > 64 * 1024 * 1024) {
+    throw new Error("MEDIASOUP_SOCKET_BUFFER_BYTES must be an integer between 262144 and 67108864");
+  }
+  return bytes;
+}
+
 function listenAddresses(
   environment: MediaEnvironment,
   interfaces: NetworkInterfaceMap,
@@ -88,9 +100,22 @@ export function mediasoupWebRtcServerConfig(
   interfaces: NetworkInterfaceMap = networkInterfaces(),
 ): MediasoupWebRtcServerConfig {
   const port = parseMediasoupPort(environment.MEDIASOUP_PORT);
+  const socketBufferBytes = parseSocketBufferBytes(environment.MEDIASOUP_SOCKET_BUFFER_BYTES);
   const listenInfos = listenAddresses(environment, interfaces).flatMap((address) => [
-    { protocol: "udp" as const, ...address, port },
-    { protocol: "tcp" as const, ...address, port },
+    {
+      protocol: "udp" as const,
+      ...address,
+      port,
+      sendBufferSize: socketBufferBytes,
+      recvBufferSize: socketBufferBytes,
+    },
+    {
+      protocol: "tcp" as const,
+      ...address,
+      port,
+      sendBufferSize: socketBufferBytes,
+      recvBufferSize: socketBufferBytes,
+    },
   ]);
   return { listenInfos, port };
 }

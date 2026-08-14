@@ -28,7 +28,7 @@ function noiseFrames(width: number, height: number): HTMLCanvasElement[] {
 interface PatternOptions {
   fps: number;
   height: number;
-  pattern: "screen" | "stress";
+  pattern: "game" | "screen" | "stress";
   width: number;
 }
 
@@ -50,6 +50,7 @@ export function startPatternCanvas(options: PatternOptions): PatternCanvas {
   let animationHandle = 0;
   const useAnimationFrame = !navigator.userAgent.toLowerCase().includes("firefox");
   const stressFrames = pattern === "stress" ? noiseFrames(width, height) : [];
+  const gameTexture = pattern === "game" ? noiseFrames(width, height)[0] : null;
   context.imageSmoothingEnabled = false;
   const animate = () => {
     frame += 1;
@@ -64,6 +65,13 @@ export function startPatternCanvas(options: PatternOptions): PatternCanvas {
     } else {
       context.fillStyle = "#10273a";
       context.fillRect(0, 0, width, height);
+      if (gameTexture) {
+        const horizontalOffset = (frame * Math.max(8, Math.round(width / 300))) % width;
+        context.globalAlpha = 0.52;
+        context.drawImage(gameTexture, -horizontalOffset, 0, width, height);
+        context.drawImage(gameTexture, width - horizontalOffset, 0, width, height);
+        context.globalAlpha = 1;
+      }
       const cell = Math.max(24, Math.round(width / 32));
       const offset = (frame * 3) % cell;
       context.strokeStyle = "#2b4e66";

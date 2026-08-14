@@ -1,8 +1,10 @@
 # Screen Share
 
 A private, one-host, one-viewer screen-sharing service. The host creates a
-short session code and sends one native-resolution stream through mediasoup to
-one viewer, with no simulcast, transcoding, audio, or data channels. The
+short session code and sends one screen stream through mediasoup to one viewer,
+with no simulcast, transcoding, audio, or data channels. Capture starts at the
+selected surface's native geometry; encoded resolution can decrease to protect
+cadence under pressure. The
 end-to-end browser/SFU capability intersection prefers AV1 and falls back to
 H.264 packetization mode 1.
 
@@ -15,8 +17,9 @@ H.264 packetization mode 1.
   substitute
 
 The project is screen-video only. Bun runs the workspace, Hono provides HTTP
-and WebSocket signaling, and mediasoup forwards RTP. Capture trusts the
-selected surface's reported maximum FPS. The visible encoder FPS and bitrate
+and WebSocket signaling, and mediasoup forwards RTP. Automatic capture uses the
+selected surface's configured rate; a manual FPS value is sent as an ideal
+request even when a browser reports a conservative capability maximum. The FPS and bitrate
 ceilings are persisted locally; the automatic video recommendation uses
 `width × height × FPS × 0.1`, rounded to 250 kbps and capped at 100 Mbps.
 
@@ -74,6 +77,7 @@ starting the backend:
 MEDIASOUP_LISTEN_IP=0.0.0.0 \
 MEDIASOUP_ANNOUNCED_ADDRESS=192.0.2.10 \
 MEDIASOUP_PORT=40000 \
+MEDIASOUP_SOCKET_BUFFER_BYTES=4194304 \
 bun run start:backend
 ```
 
@@ -161,9 +165,9 @@ loss/repair counters, frame cadence/freezes, clock offset, and latency
 percentiles. Unsupported values stay visible as `Unavailable`; candidate
 addresses are not part of the UI contract.
 
-Each role receives the peer's normalized summary over signaling. Use **Download
-telemetry** in Debug settings to retain the local samples and immediate
-lifecycle events for a browser-pairing run.
+Each role receives the peer's normalized summary and telemetry envelope over
+signaling. Use **Download telemetry** in Debug settings to retain both endpoints'
+samples and lifecycle events in one browser-pairing artifact.
 
 The host can switch the maximum bitrate between automatic and manual while a
 share is active. Automatic recomputes a quality-oriented source ceiling while
@@ -178,17 +182,20 @@ through the same producer, SFU, consumer, and statistics normalizer used by the
 application.
 
 The harness accepts query parameters for repeatable checks. It selects AV1
-automatically when both browser endpoints can send/receive it:
+automatically when both browser endpoints can send/receive it. `cycles` repeats
+producer/consumer replacement, `warmupSeconds` lets the balanced controller
+settle, and `minBitrateMbps` sets an optional sustained-throughput gate:
 
 ```text
-/stage3-harness.html?autorun=1&width=3024&height=1964&fps=60&bitrateMbps=50&sampleSeconds=8&pattern=screen
-/stage3-harness.html?autorun=1&width=1280&height=720&fps=60&bitrateMbps=50&sampleSeconds=6&pattern=screen&codec=h264
+/stage3-harness.html?autorun=1&width=3024&height=1964&fps=60&bitrateMbps=50&minBitrateMbps=8&warmupSeconds=8&sampleSeconds=6&cycles=3&pattern=game
+/stage3-harness.html?autorun=1&width=3024&height=1964&fps=60&bitrateMbps=50&minBitrateMbps=8&warmupSeconds=8&sampleSeconds=6&cycles=2&pattern=game&codec=h264
 /stage3-harness.html?autorun=1&width=1280&height=720&fps=60&bitrateMbps=50&sampleSeconds=6&pattern=stress&codec=av1
 ```
 
-`pattern=screen` is the realistic moving-screen gate. `pattern=stress` is an
-intentionally incompressible rate-control stress case and is not expected to
-preserve 60 FPS at every encoder target.
+`pattern=screen` is a moving-workspace check, `pattern=game` is the sustained
+high-motion/high-bitrate gate, and `pattern=stress` is intentionally
+incompressible. The stress pattern is a rate-control limit test and is not
+expected to preserve 60 FPS at every encoder target.
 
 The configured bitrate is an encoder ceiling. RTP/UDP/IP overhead and
 retransmissions can make total link traffic higher, while WebRTC congestion
@@ -200,8 +207,34 @@ bitrate before diagnosing bandwidth. A bounded startup hint reduces slow
 ramp-up where the browser honors it, and the applied
 sender parameters are read back into the panel rather than assumed.
 
+The single **Balanced** mode sets the track's motion hint and always asks the
+sender to maintain frame rate under pressure. Two consecutive cadence-pressure
+samples cause a resolution adjustment sized to the measured FPS deficit. Stable
+headroom expands the automatic bitrate ceiling up to 100 Mbps before detail is
+restored one scale step at a time; cooldowns and a 20-sample recovery window
+prevent oscillation. A connected but stalled sender is recreated, and a viewer
+that receives RTP without complete frames reattaches its consumer. High-priority
+RTP allocation and a conservative quality-floor codec hint are applied where
+supported without overriding congestion control. The viewer requests a 40 ms
+jitter-buffer target where the browser implements it; measured jitter-buffer
+delay remains visible because the browser can clamp that request upward.
+
+**HDR if supported** inspects color-transfer metadata exposed by capture, carries
+it to the viewer, and verifies decoded `VideoFrame` metadata where available.
+The UI says `HDR preserved` only after that verification. Otherwise it reports
+that preservation is unverified or that the browser/display is tone-mapping to
+SDR. The CSS HDR output hint is feature-dependent; browsers and operating
+systems retain final control of capture, codec profile, display mode, and tone
+mapping.
+
 Current mediasoup `3.24.2` rejects `video/H265` as an unsupported router codec.
 The client still reports H.265 send/receive capability when a browser exposes
-it, but Stage 3 will not select it or claim it works end to end. The active
-preference is therefore AV1, then H.264. H.265 can be inserted between them only
-after the SFU can create and route an H.265 producer/consumer.
+it, but the service will not select it or claim it works end to end. The active
+preference is therefore AV1, then H.264. At the requested geometry and FPS, the
+startup planner probes AV1 and H.264 across resolution scales. It keeps the
+requested cadence when a smooth, power-efficient mode exists, prefers
+hardware-backed operation over a software-only preferred codec, and uses a
+conservative 60 FPS mode when the API cannot verify a higher rate. If runtime
+telemetry finds software AV1 unable to hold cadence, the host switches
+atomically to the compatible fallback codec. H.265 can be inserted between them
+only after the SFU can create and route an H.265 producer/consumer.

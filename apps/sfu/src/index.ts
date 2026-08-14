@@ -105,6 +105,7 @@ async function handleMessage(socket: WSContext, rawMessage: WSMessageReceive): P
           protocolVersion: PROTOCOL_VERSION,
           peerRole: metadata.role,
           summary: message.summary,
+          ...(message.envelope ? { envelope: message.envelope } : {}),
         });
       }
       break;

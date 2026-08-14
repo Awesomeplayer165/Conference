@@ -1,5 +1,9 @@
 import { describe, expect, it } from "bun:test";
-import { recommendH264BitrateBps, recommendH264StartupBitrateKbps } from "./h264Bitrate.js";
+import {
+  recommendH264BitrateBps,
+  recommendH264StartupBitrateKbps,
+  recommendScreenMinimumBitrateBps,
+} from "./h264Bitrate.js";
 
 describe("H.264 bitrate recommendation", () => {
   it("scales with arbitrary source geometry and FPS", () => {
@@ -39,5 +43,22 @@ describe("H.264 startup bitrate hint", () => {
     expect(recommendH264StartupBitrateKbps(4_000_000)).toBe(2_800);
     expect(recommendH264StartupBitrateKbps(100_000_000)).toBe(20_000);
     expect(recommendH264StartupBitrateKbps(250_000)).toBeLessThanOrEqual(250);
+  });
+});
+
+describe("screen motion bitrate floor hint", () => {
+  it("keeps the hint below half of the ceiling", () => {
+    expect(
+      recommendScreenMinimumBitrateBps({ width: 3024, height: 1890, fps: 60 }, 50_000_000),
+    ).toBe(12_000_000);
+    expect(
+      recommendScreenMinimumBitrateBps({ width: 3840, height: 2160, fps: 120 }, 20_000_000),
+    ).toBe(10_000_000);
+  });
+
+  it("never exceeds a low manual ceiling", () => {
+    expect(recommendScreenMinimumBitrateBps({ width: 640, height: 480, fps: 5 }, 1_000_000)).toBe(
+      1_000_000,
+    );
   });
 });

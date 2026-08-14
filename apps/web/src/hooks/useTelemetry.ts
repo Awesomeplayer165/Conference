@@ -1,4 +1,9 @@
-import { PROTOCOL_VERSION, type Role, type StatisticsSummary } from "@conference/protocol";
+import {
+  PROTOCOL_VERSION,
+  type Role,
+  type StatisticsSummary,
+  type TelemetryEnvelope,
+} from "@conference/protocol";
 import { createTelemetryEnvelope, WebRtcStatsNormalizer } from "@conference/telemetry";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ConnectionStatus } from "../components/ScreenShareView.js";
@@ -10,6 +15,7 @@ interface UseTelemetryOptions {
   endpointId: string;
   localStatisticsRef: React.RefObject<StatisticsSummary>;
   mediasoupRef: React.RefObject<MediasoupSession | null>;
+  onSampleRef?: React.RefObject<((summary: StatisticsSummary) => void) | null>;
   role: Role;
   roomId: string;
   setLocalStatistics: React.Dispatch<React.SetStateAction<StatisticsSummary>>;
@@ -47,6 +53,7 @@ export function useTelemetry(options: UseTelemetryOptions) {
     endpointId,
     localStatisticsRef,
     mediasoupRef,
+    onSampleRef,
     role,
     roomId,
     setLocalStatistics,
@@ -56,6 +63,7 @@ export function useTelemetry(options: UseTelemetryOptions) {
   const [artifactCount, setArtifactCount] = useState(0);
   const artifactsRef = useRef<string[]>([]);
   const normalizerRef = useRef(new WebRtcStatsNormalizer());
+  const sampleObserver = onSampleRef;
   const sessionId = useMemo(() => crypto.randomUUID(), []);
   const sequenceRef = useRef(0);
 
@@ -98,10 +106,19 @@ export function useTelemetry(options: UseTelemetryOptions) {
 
   const publishLifecycle = useCallback(
     (event: string, summary = localStatisticsRef.current): void => {
-      publish("event", summary, { event });
+      publish("event", summary, { ...telemetryPayload(summary), event });
     },
     [localStatisticsRef, publish],
   );
+
+  const recordPeerEnvelope = useCallback((envelope: TelemetryEnvelope): void => {
+    const artifacts = artifactsRef.current;
+    artifacts.push(JSON.stringify(envelope));
+    if (artifacts.length > 10_000) {
+      artifacts.shift();
+    }
+    setArtifactCount(artifacts.length);
+  }, []);
 
   useEffect(() => {
     if (status !== "joined") {
@@ -160,10 +177,11 @@ export function useTelemetry(options: UseTelemetryOptions) {
           serverIceState: serverStats.iceState,
           serverDtlsState: serverStats.dtlsState,
           serverTransportProtocol: serverStats.transportProtocol,
-          controllerState: "measurement-only",
+          controllerState: current.controllerState,
         };
         localStatisticsRef.current = next;
         setLocalStatistics(next);
+        sampleObserver?.current?.(next);
         publish("sample", next);
       } catch {
         // Media may be between lifecycle states; the next sample retries.
@@ -178,7 +196,15 @@ export function useTelemetry(options: UseTelemetryOptions) {
       window.clearInterval(timer);
       normalizer.reset();
     };
-  }, [localStatisticsRef, mediasoupRef, publish, setLocalStatistics, socketRef, status]);
+  }, [
+    localStatisticsRef,
+    mediasoupRef,
+    publish,
+    sampleObserver,
+    setLocalStatistics,
+    socketRef,
+    status,
+  ]);
 
   const download = useCallback(() => {
     const contents = `${artifactsRef.current.join("\n")}\n`;
@@ -190,5 +216,5 @@ export function useTelemetry(options: UseTelemetryOptions) {
     URL.revokeObjectURL(url);
   }, [sessionId]);
 
-  return { artifactCount, download, publish, publishLifecycle };
+  return { artifactCount, download, publish, publishLifecycle, recordPeerEnvelope };
 }

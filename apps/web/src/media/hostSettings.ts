@@ -6,6 +6,7 @@ export interface HostMediaSettings {
   contentMode: ContentMode;
   fpsUserEdited: boolean;
   bitrateUserEdited: boolean;
+  hdrEnabled: boolean;
 }
 
 const STORAGE_KEY = "conference.host-media-settings.v1";
@@ -15,14 +16,11 @@ const DEFAULT_SETTINGS: HostMediaSettings = {
   contentMode: "auto",
   fpsUserEdited: false,
   bitrateUserEdited: false,
+  hdrEnabled: true,
 };
 
 function finitePositive(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : null;
-}
-
-function contentMode(value: unknown): ContentMode {
-  return value === "detail" || value === "motion" ? value : "auto";
 }
 
 export function loadHostMediaSettings(
@@ -38,9 +36,10 @@ export function loadHostMediaSettings(
     return {
       maxFps: finitePositive(parsed.maxFps) ?? DEFAULT_SETTINGS.maxFps,
       maxBitrateBps: finitePositive(parsed.maxBitrateBps) ?? DEFAULT_SETTINGS.maxBitrateBps,
-      contentMode: contentMode(parsed.contentMode),
+      contentMode: "auto",
       fpsUserEdited: parsed.fpsUserEdited === true,
       bitrateUserEdited: parsed.bitrateUserEdited === true,
+      hdrEnabled: parsed.hdrEnabled !== false,
     };
   } catch {
     return { ...DEFAULT_SETTINGS };

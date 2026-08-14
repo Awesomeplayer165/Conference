@@ -10,6 +10,7 @@ import type { HostMediaSettings } from "../media/hostSettings.js";
 import { displayVideoCodec } from "../media/videoCodecs.js";
 import { normalizeSessionCode } from "../sessionCode.js";
 import { CaptureReport, StatisticsCard, TelemetryOverlay } from "./Diagnostics.js";
+import { QualityPanel } from "./QualityPanel.js";
 
 export type ConnectionStatus = "idle" | "connecting" | "joined" | "error";
 
@@ -24,6 +25,8 @@ export interface ScreenShareViewProps {
   debugOverlayEnabled: boolean;
   downloadTelemetry: () => void;
   hostSettings: HostMediaSettings;
+  hdrOutputEnabled: boolean;
+  hdrStatus: string;
   joinRoom: () => void;
   joined: boolean;
   leaveRoom: () => void;
@@ -193,95 +196,6 @@ function SessionEntry(props: ScreenShareViewProps) {
   );
 }
 
-function QualityPanel(props: ScreenShareViewProps) {
-  const { captureActive, hostSettings, setAutomaticBitrate, setHostSettings } = props;
-  return (
-    <section className="quality-panel" aria-labelledby="quality-heading">
-      <div className="quality-heading">
-        <div>
-          <p className="eyebrow">Live controls</p>
-          <h2 id="quality-heading">Sharing quality</h2>
-        </div>
-        <p>{captureActive ? "Changes apply while sharing." : "Set preferences before sharing."}</p>
-      </div>
-      <div className="quality-grid">
-        <label>
-          Bitrate control
-          <select
-            onChange={(event) => setAutomaticBitrate(event.target.value === "automatic")}
-            value={hostSettings.bitrateUserEdited ? "manual" : "automatic"}
-          >
-            <option value="automatic">Automatic ceiling</option>
-            <option value="manual">Manual ceiling</option>
-          </select>
-        </label>
-        <label>
-          Maximum bitrate
-          <div className="input-with-unit">
-            <input
-              disabled={!hostSettings.bitrateUserEdited}
-              max={100}
-              min={0.25}
-              onChange={(event) =>
-                setHostSettings((current) => ({
-                  ...current,
-                  maxBitrateBps: Math.max(250_000, Number(event.target.value) * 1_000_000),
-                  bitrateUserEdited: true,
-                }))
-              }
-              step={0.25}
-              type="number"
-              value={hostSettings.maxBitrateBps / 1_000_000}
-            />
-            <span>Mbps</span>
-          </div>
-        </label>
-        <label>
-          Maximum frame rate
-          <div className="input-with-unit">
-            <input
-              max={240}
-              min={1}
-              onChange={(event) =>
-                setHostSettings((current) => ({
-                  ...current,
-                  maxFps: Math.max(1, Number(event.target.value)),
-                  fpsUserEdited: true,
-                }))
-              }
-              type="number"
-              value={hostSettings.maxFps}
-            />
-            <span>FPS</span>
-          </div>
-        </label>
-        <label>
-          Content priority
-          <select
-            disabled={captureActive}
-            onChange={(event) =>
-              setHostSettings((current) => ({
-                ...current,
-                contentMode: event.target.value as "auto" | "detail" | "motion",
-              }))
-            }
-            value={hostSettings.contentMode}
-          >
-            <option value="auto">Balanced</option>
-            <option value="motion">Smooth motion</option>
-            <option value="detail">Text detail</option>
-          </select>
-        </label>
-      </div>
-      <p className="control-note">
-        Automatic computes a quality-oriented ceiling from the source and lets network conditions
-        determine actual usage below it. Manual changes the maximum immediately without restarting
-        the share.
-      </p>
-    </section>
-  );
-}
-
 function SessionWorkspace(props: ScreenShareViewProps) {
   const {
     captureActive,
@@ -296,6 +210,8 @@ function SessionWorkspace(props: ScreenShareViewProps) {
     remoteVideoRef,
     role,
     roomId,
+    hdrOutputEnabled,
+    hdrStatus,
     shareScreen,
     statusMessage,
     updateRemoteGeometry,
@@ -332,6 +248,7 @@ function SessionWorkspace(props: ScreenShareViewProps) {
           <div>
             <p className="eyebrow">{role === "host" ? "Your screen" : "Shared with you"}</p>
             <h2 id="video-heading">{role === "host" ? "Local preview" : "Shared screen"}</h2>
+            <p className="video-format-status">{hdrStatus}</p>
           </div>
           {role === "host" && videoActive && (
             <button
@@ -347,7 +264,9 @@ function SessionWorkspace(props: ScreenShareViewProps) {
           {role === "host" ? (
             <video
               autoPlay
-              className={captureActive ? "capture-video" : "capture-video hidden"}
+              className={`${captureActive ? "capture-video" : "capture-video hidden"} ${
+                hdrOutputEnabled ? "hdr-output" : "sdr-output"
+              }`}
               muted
               onLoadedMetadata={updateRenderGeometry}
               playsInline
@@ -356,7 +275,9 @@ function SessionWorkspace(props: ScreenShareViewProps) {
           ) : (
             <video
               autoPlay
-              className={remoteActive ? "capture-video" : "capture-video hidden"}
+              className={`${remoteActive ? "capture-video" : "capture-video hidden"} ${
+                hdrOutputEnabled ? "hdr-output" : "sdr-output"
+              }`}
               muted
               onLoadedMetadata={updateRemoteGeometry}
               playsInline

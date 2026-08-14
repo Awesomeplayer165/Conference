@@ -1,4 +1,6 @@
 import {
+  type ContentMode,
+  type HdrMetadata,
   type MediaRequestMessage,
   type MediaResponseMessage,
   PROTOCOL_VERSION,
@@ -17,44 +19,33 @@ import type {
   TransportOptions,
 } from "mediasoup-client/types";
 import { recommendH264StartupBitrateKbps } from "./h264Bitrate.js";
+import {
+  expectMediaResponse,
+  findNegotiatedCodec,
+  mediaRequestId,
+} from "./mediaSessionProtocol.js";
+import { degradationPreferenceForContent } from "./producerPolicy.js";
+import { applyLowLatencyReceiverPolicy } from "./receiverPolicy.js";
 import { displayVideoCodec } from "./videoCodecs.js";
 
 export type MediaRequester = (message: MediaRequestMessage) => Promise<MediaResponseMessage>;
 
 export interface ProducerSettings {
+  contentMode: ContentMode;
   maxBitrateBps: number;
   maxFps: number;
+  minBitrateBps: number;
+  scaleResolutionDownBy?: number;
+  hdrMetadata?: HdrMetadata;
+  preferredCodec?: VideoCodec;
+  fallbackCodec?: VideoCodec;
 }
 
 export interface MediasoupSessionCallbacks {
   onState: (state: string) => void;
   onRemoteTrack: (track: MediaStreamTrack | null) => void;
+  onRemoteHdrMetadata?: (metadata: HdrMetadata | null) => void;
   onTransportState?: (direction: "send" | "recv", state: string) => void;
-}
-
-function requestId(): string {
-  return crypto.randomUUID();
-}
-
-function expectResponse<T extends MediaResponseMessage["type"]>(
-  response: MediaResponseMessage,
-  type: T,
-): Extract<MediaResponseMessage, { type: T }> {
-  if (response.type === "media.error") {
-    throw new Error(response.message);
-  }
-  if (response.type !== type) {
-    throw new Error(`Expected ${type}, received ${response.type}`);
-  }
-  return response as Extract<MediaResponseMessage, { type: T }>;
-}
-
-function findCodec(codecs: RtpCapabilities["codecs"], selectedCodec: VideoCodec) {
-  return codecs?.find(
-    (codec) =>
-      codec.mimeType.toLowerCase() === selectedCodec.toLowerCase() &&
-      (selectedCodec !== "video/H264" || codec.parameters?.["packetization-mode"] === 1),
-  );
 }
 
 export class MediasoupSession {
@@ -65,6 +56,11 @@ export class MediasoupSession {
   #recvTransport: Transport | null = null;
   #producer: Producer | null = null;
   #consumer: Consumer | null = null;
+  #jitterBufferTargetMs: number | null = null;
+  #producerHdrMetadata: HdrMetadata | undefined;
+  #producerOperations: Promise<void> = Promise.resolve();
+  #consumerOperations: Promise<void> = Promise.resolve();
+  #consumerTarget: { producerId: string; hdrMetadata?: HdrMetadata } | null = null;
 
   constructor(request: MediaRequester, callbacks: MediasoupSessionCallbacks) {
     this.#request = request;
@@ -79,15 +75,19 @@ export class MediasoupSession {
     return this.#consumer;
   }
 
+  get consumingProducerId(): string | null {
+    return this.#consumer?.producerId ?? this.#consumerTarget?.producerId ?? null;
+  }
+
   async initialize(): Promise<void> {
     if (this.#device) {
       return;
     }
-    const response = expectResponse(
+    const response = expectMediaResponse(
       await this.#request({
         type: "media.getRouterCapabilities",
         protocolVersion: PROTOCOL_VERSION,
-        requestId: requestId(),
+        requestId: mediaRequestId(),
       }),
       "media.routerCapabilities",
     );
@@ -97,8 +97,8 @@ export class MediasoupSession {
     });
     const hasStage3Codec = (["video/AV1", "video/H264"] as const).some(
       (codec) =>
-        Boolean(findCodec(device.sendRtpCapabilities.codecs, codec)) ||
-        Boolean(findCodec(device.recvRtpCapabilities.codecs, codec)),
+        Boolean(findNegotiatedCodec(device.sendRtpCapabilities.codecs, codec)) ||
+        Boolean(findNegotiatedCodec(device.recvRtpCapabilities.codecs, codec)),
     );
     if (!hasStage3Codec) {
       throw new Error("This browser has no AV1 or H.264 codec compatible with the media server.");
@@ -111,6 +111,14 @@ export class MediasoupSession {
     settings: ProducerSettings,
     selectedCodec: VideoCodec = "video/H264",
   ): Promise<void> {
+    return this.#enqueueProducer(() => this.#startProducing(track, settings, selectedCodec));
+  }
+
+  async #startProducing(
+    track: MediaStreamTrack,
+    settings: ProducerSettings,
+    selectedCodec: VideoCodec,
+  ): Promise<void> {
     await this.initialize();
     const device = this.#requiredDevice();
     if (!device.canProduce("video")) {
@@ -121,8 +129,9 @@ export class MediasoupSession {
       this.#wireSendTransport(this.#sendTransport);
     }
     this.#producer?.close();
+    this.#producerHdrMetadata = settings.hdrMetadata;
 
-    const codec = findCodec(device.sendRtpCapabilities.codecs, selectedCodec);
+    const codec = findNegotiatedCodec(device.sendRtpCapabilities.codecs, selectedCodec);
     if (!codec) {
       throw new Error(`${displayVideoCodec(selectedCodec)} encoding was not negotiated locally`);
     }
@@ -135,18 +144,24 @@ export class MediasoupSession {
         {
           maxBitrate: Math.round(settings.maxBitrateBps),
           maxFramerate: settings.maxFps,
-          scaleResolutionDownBy: 1,
+          networkPriority: "high",
+          priority: "high",
+          scaleResolutionDownBy: settings.scaleResolutionDownBy ?? 1,
           ...(selectedCodec === "video/AV1" ? { scalabilityMode: "L1T1" } : {}),
         },
       ],
       codecOptions: {
-        videoGoogleStartBitrate: recommendH264StartupBitrateKbps(settings.maxBitrateBps),
+        videoGoogleMinBitrate: Math.round(settings.minBitrateBps / 1_000),
+        videoGoogleStartBitrate: Math.max(
+          recommendH264StartupBitrateKbps(settings.maxBitrateBps),
+          Math.round(settings.minBitrateBps / 1_000),
+        ),
         videoGoogleMaxBitrate: Math.round(settings.maxBitrateBps / 1_000),
       },
       appData: { source: "screen" },
     });
     this.#producer = producer;
-    await this.#applySenderPolicy(producer);
+    await this.#applySenderPolicy(producer, settings.contentMode);
     producer.on("transportclose", () => {
       if (this.#producer === producer) {
         this.#producer = null;
@@ -156,6 +171,10 @@ export class MediasoupSession {
   }
 
   async updateProducerSettings(settings: ProducerSettings): Promise<void> {
+    return this.#enqueueProducer(() => this.#updateProducerSettings(settings));
+  }
+
+  async #updateProducerSettings(settings: ProducerSettings): Promise<void> {
     const producer = this.#producer;
     if (!producer || producer.closed) {
       return;
@@ -163,9 +182,9 @@ export class MediasoupSession {
     await producer.setRtpEncodingParameters({
       maxBitrate: Math.round(settings.maxBitrateBps),
       maxFramerate: settings.maxFps,
-      scaleResolutionDownBy: 1,
+      scaleResolutionDownBy: settings.scaleResolutionDownBy ?? 1,
     });
-    await this.#applySenderPolicy(producer);
+    await this.#applySenderPolicy(producer, settings.contentMode);
   }
 
   async getStatsReports(): Promise<WebRtcStatsReports> {
@@ -178,11 +197,11 @@ export class MediasoupSession {
   }
 
   async getServerStats(): Promise<ServerMediaStatistics> {
-    const response = expectResponse(
+    const response = expectMediaResponse(
       await this.#request({
         type: "media.getServerStats",
         protocolVersion: PROTOCOL_VERSION,
-        requestId: requestId(),
+        requestId: mediaRequestId(),
       }),
       "media.serverStats",
     );
@@ -200,6 +219,7 @@ export class MediasoupSession {
       appliedMaxFramerate: encoding?.maxFramerate ?? null,
       scaleResolutionDownBy: encoding?.scaleResolutionDownBy ?? null,
       degradationPreference: parameters?.degradationPreference ?? null,
+      jitterBufferTargetMs: this.#jitterBufferTargetMs,
       transportState: transport?.connectionState ?? null,
       iceState: dtlsTransport?.iceTransport.state ?? null,
       dtlsState: dtlsTransport?.state ?? null,
@@ -207,6 +227,10 @@ export class MediasoupSession {
   }
 
   async stopProducing(): Promise<void> {
+    return this.#enqueueProducer(() => this.#stopProducing());
+  }
+
+  async #stopProducing(): Promise<void> {
     const producer = this.#producer;
     this.#producer = null;
     if (!producer) {
@@ -214,11 +238,11 @@ export class MediasoupSession {
     }
     if (!producer.closed) {
       try {
-        expectResponse(
+        expectMediaResponse(
           await this.#request({
             type: "media.closeProducer",
             protocolVersion: PROTOCOL_VERSION,
-            requestId: requestId(),
+            requestId: mediaRequestId(),
             producerId: producer.id,
           }),
           "media.ack",
@@ -230,7 +254,19 @@ export class MediasoupSession {
     this.#callbacks.onState("Screen producer stopped");
   }
 
-  async consume(producerId: string): Promise<void> {
+  async consume(producerId: string, hdrMetadata?: HdrMetadata): Promise<void> {
+    return this.#enqueueConsumer(() => this.#consume(producerId, hdrMetadata));
+  }
+
+  async restartConsuming(): Promise<void> {
+    const target = this.#consumerTarget;
+    if (!target) {
+      throw new Error("No screen producer is available to reconnect");
+    }
+    return this.consume(target.producerId, target.hdrMetadata);
+  }
+
+  async #consume(producerId: string, hdrMetadata?: HdrMetadata): Promise<void> {
     await this.initialize();
     const device = this.#requiredDevice();
     if (!this.#recvTransport) {
@@ -238,11 +274,12 @@ export class MediasoupSession {
       this.#wireRecvTransport(this.#recvTransport);
     }
     this.stopConsuming();
-    const response = expectResponse(
+    this.#consumerTarget = { producerId, ...(hdrMetadata ? { hdrMetadata } : {}) };
+    const response = expectMediaResponse(
       await this.#request({
         type: "media.consume",
         protocolVersion: PROTOCOL_VERSION,
-        requestId: requestId(),
+        requestId: mediaRequestId(),
         transportId: this.#recvTransport.id,
         producerId,
         rtpCapabilities: device.recvRtpCapabilities as unknown as Record<string, unknown>,
@@ -256,19 +293,25 @@ export class MediasoupSession {
       rtpParameters: response.consumer.rtpParameters as unknown as RtpParameters,
     });
     try {
-      expectResponse(
+      const receiverPolicy = applyLowLatencyReceiverPolicy(consumer);
+      this.#jitterBufferTargetMs = receiverPolicy.jitterBufferTargetMs;
+      if (!receiverPolicy.accepted) {
+        this.#callbacks.onState("Browser did not accept the low-latency receive target");
+      }
+      expectMediaResponse(
         await this.#request({
           type: "media.resumeConsumer",
           protocolVersion: PROTOCOL_VERSION,
-          requestId: requestId(),
+          requestId: mediaRequestId(),
           consumerId: consumer.id,
         }),
         "media.ack",
       );
       this.#consumer = consumer;
       this.#callbacks.onRemoteTrack(consumer.track);
-      consumer.on("transportclose", () => this.stopConsuming());
-      consumer.on("trackended", () => this.stopConsuming());
+      this.#callbacks.onRemoteHdrMetadata?.(hdrMetadata ?? null);
+      consumer.on("transportclose", () => this.#stopConsumerIfCurrent(consumer));
+      consumer.on("trackended", () => this.#stopConsumerIfCurrent(consumer));
     } catch (error) {
       consumer.close();
       throw error;
@@ -281,11 +324,17 @@ export class MediasoupSession {
     );
   }
 
-  stopConsuming(): void {
+  stopConsuming(producerId?: string): void {
+    if (producerId && this.consumingProducerId !== producerId) {
+      return;
+    }
     const consumer = this.#consumer;
     this.#consumer = null;
+    this.#consumerTarget = null;
+    this.#jitterBufferTargetMs = null;
     consumer?.close();
     this.#callbacks.onRemoteTrack(null);
+    this.#callbacks.onRemoteHdrMetadata?.(null);
   }
 
   close(): void {
@@ -295,19 +344,22 @@ export class MediasoupSession {
     this.#recvTransport?.close();
     this.#producer = null;
     this.#consumer = null;
+    this.#consumerTarget = null;
     this.#sendTransport = null;
     this.#recvTransport = null;
     this.#device = null;
+    this.#jitterBufferTargetMs = null;
     this.#callbacks.onRemoteTrack(null);
+    this.#callbacks.onRemoteHdrMetadata?.(null);
   }
 
   async #createTransport(direction: "send" | "recv"): Promise<Transport> {
     const device = this.#requiredDevice();
-    const response = expectResponse(
+    const response = expectMediaResponse(
       await this.#request({
         type: "media.createTransport",
         protocolVersion: PROTOCOL_VERSION,
-        requestId: requestId(),
+        requestId: mediaRequestId(),
         direction,
       }),
       "media.transportCreated",
@@ -332,12 +384,13 @@ export class MediasoupSession {
       void this.#request({
         type: "media.produce",
         protocolVersion: PROTOCOL_VERSION,
-        requestId: requestId(),
+        requestId: mediaRequestId(),
         transportId: transport.id,
         kind: kind as "video",
         rtpParameters: rtpParameters as unknown as Record<string, unknown>,
+        ...(this.#producerHdrMetadata ? { hdrMetadata: this.#producerHdrMetadata } : {}),
       })
-        .then((response) => expectResponse(response, "media.produced"))
+        .then((response) => expectMediaResponse(response, "media.produced"))
         .then(({ producerId }) => callback({ id: producerId }))
         .catch(errback);
     });
@@ -352,11 +405,11 @@ export class MediasoupSession {
       void this.#request({
         type: "media.connectTransport",
         protocolVersion: PROTOCOL_VERSION,
-        requestId: requestId(),
+        requestId: mediaRequestId(),
         transportId: transport.id,
         dtlsParameters: dtlsParameters as unknown as Record<string, unknown>,
       })
-        .then((response) => expectResponse(response, "media.ack"))
+        .then((response) => expectMediaResponse(response, "media.ack"))
         .then(() => callback())
         .catch(errback);
     });
@@ -373,18 +426,43 @@ export class MediasoupSession {
     });
   }
 
-  async #applySenderPolicy(producer: Producer): Promise<void> {
+  async #applySenderPolicy(producer: Producer, contentMode: ContentMode): Promise<void> {
     const sender = producer.rtpSender;
     if (!sender) {
       return;
     }
     const parameters = sender.getParameters();
-    parameters.degradationPreference = "maintain-resolution";
+    const degradationPreference = degradationPreferenceForContent(contentMode);
+    parameters.degradationPreference = degradationPreference;
     try {
       await sender.setParameters(parameters);
     } catch {
-      this.#callbacks.onState("Browser did not accept maintain-resolution preference");
+      this.#callbacks.onState(`Browser did not accept ${degradationPreference} preference`);
     }
+  }
+
+  #stopConsumerIfCurrent(consumer: Consumer): void {
+    if (this.#consumer === consumer) {
+      this.stopConsuming(consumer.producerId);
+    }
+  }
+
+  #enqueueProducer<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.#producerOperations.then(operation, operation);
+    this.#producerOperations = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
+  }
+
+  #enqueueConsumer<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.#consumerOperations.then(operation, operation);
+    this.#consumerOperations = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
   }
 
   #requiredDevice(): Device {

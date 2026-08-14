@@ -159,6 +159,6 @@ export function contentHintForMode(mode: ContentMode): string {
     case "motion":
       return "motion";
     case "auto":
-      return "";
+      return "motion";
   }
 }

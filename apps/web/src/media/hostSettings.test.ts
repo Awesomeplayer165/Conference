@@ -17,6 +17,7 @@ describe("host media settings", () => {
         contentMode: "motion",
         fpsUserEdited: true,
         bitrateUserEdited: true,
+        hdrEnabled: false,
       },
       storage,
     );
@@ -24,9 +25,10 @@ describe("host media settings", () => {
     expect(loadHostMediaSettings(storage)).toEqual({
       maxFps: 120,
       maxBitrateBps: 71_250_000,
-      contentMode: "motion",
+      contentMode: "auto",
       fpsUserEdited: true,
       bitrateUserEdited: true,
+      hdrEnabled: false,
     });
   });
 });

@@ -215,6 +215,27 @@
   margin-top: 1rem;
 }
 
+.quality-mode {
+  display: grid;
+  align-content: start;
+  gap: 0.3rem;
+  color: #929ca8;
+  font-size: 0.76rem;
+  font-weight: 650;
+}
+
+.quality-mode strong {
+  color: #edf0f3;
+  font-size: 0.9rem;
+}
+
+.quality-mode small {
+  color: #747f8c;
+  font-size: 0.69rem;
+  font-weight: 450;
+  line-height: 1.4;
+}
+
 .input-with-unit {
   position: relative;
 }
@@ -239,4 +260,17 @@
   color: #747f8c;
   font-size: 0.75rem;
   line-height: 1.55;
+}
+.video-format-status {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  margin: 0.25rem 0 0;
+}
+
+.capture-video.hdr-output {
+  dynamic-range-limit: no-limit;
+}
+
+.capture-video.sdr-output {
+  dynamic-range-limit: standard;
 }

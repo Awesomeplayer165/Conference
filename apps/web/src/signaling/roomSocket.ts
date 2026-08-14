@@ -5,6 +5,7 @@ import {
   type Role,
   type StatisticsSummary,
   safeParseServerMessage,
+  type TelemetryEnvelope,
   type VideoCodec,
   type VideoCodecCapabilities,
 } from "@conference/protocol";
@@ -30,6 +31,7 @@ interface OpenRoomConnectionOptions {
   pendingMediaRef: RefObject<Map<string, PendingMediaRequest>>;
   producerSettingsRef: RefObject<ProducerSettings | null>;
   publishLifecycle: (event: string) => void;
+  recordPeerEnvelope: (envelope: TelemetryEnvelope) => void;
   role: Role;
   roomId: string;
   setLocalStatistics: Dispatch<SetStateAction<StatisticsSummary>>;
@@ -37,6 +39,7 @@ interface OpenRoomConnectionOptions {
   setPeerPresent: Dispatch<SetStateAction<boolean>>;
   setPeerStatistics: Dispatch<SetStateAction<StatisticsSummary>>;
   setSelectedVideoCodec: Dispatch<SetStateAction<VideoCodec | null>>;
+  setCompatibleVideoCodecs: Dispatch<SetStateAction<VideoCodec[]>>;
   setStatus: Dispatch<SetStateAction<ConnectionStatus>>;
   setStatusMessage: Dispatch<SetStateAction<string>>;
   socketRef: RefObject<WebSocket | null>;
@@ -66,6 +69,7 @@ export function openRoomConnection(options: OpenRoomConnectionOptions): WebSocke
     pendingMediaRef,
     producerSettingsRef,
     publishLifecycle,
+    recordPeerEnvelope,
     role,
     roomId,
     setLocalStatistics,
@@ -73,6 +77,7 @@ export function openRoomConnection(options: OpenRoomConnectionOptions): WebSocke
     setPeerPresent,
     setPeerStatistics,
     setSelectedVideoCodec,
+    setCompatibleVideoCodecs,
     setStatus,
     setStatusMessage,
     socketRef,
@@ -134,6 +139,7 @@ export function openRoomConnection(options: OpenRoomConnectionOptions): WebSocke
         );
         setPeerPresent(result.data.peerPresent);
         setSelectedVideoCodec(result.data.selectedVideoCodec ?? null);
+        setCompatibleVideoCodecs(result.data.compatibleVideoCodecs ?? []);
         publishLifecycle("room.joined");
         break;
       case "room.peerUpdate": {
@@ -148,14 +154,21 @@ export function openRoomConnection(options: OpenRoomConnectionOptions): WebSocke
               : "The host disconnected",
         );
         setSelectedVideoCodec(result.data.selectedVideoCodec ?? null);
+        setCompatibleVideoCodecs(result.data.compatibleVideoCodecs ?? []);
         publishLifecycle(result.data.present ? "peer.joined" : "peer.left");
         if (role === "host") {
           const codec = result.data.selectedVideoCodec ?? null;
           const capture = captureRef.current;
           const settings = producerSettingsRef.current;
           if (result.data.present && codec && capture && settings) {
+            const runtimeCodec =
+              settings.preferredCodec &&
+              (result.data.compatibleVideoCodecs ?? []).includes(settings.preferredCodec)
+                ? settings.preferredCodec
+                : codec;
+            setSelectedVideoCodec(runtimeCodec);
             void getMediasoupSession()
-              .startProducing(capture.track, settings, codec)
+              .startProducing(capture.track, settings, runtimeCodec)
               .then(() => setStatusMessage("Sharing screen"))
               .catch((error: unknown) => {
                 setMediaStatus(
@@ -170,11 +183,15 @@ export function openRoomConnection(options: OpenRoomConnectionOptions): WebSocke
         }
         if (!result.data.present) {
           setPeerStatistics(createEmptyStatisticsSummary());
+          setCompatibleVideoCodecs([]);
         }
         break;
       }
       case "telemetry.peerSummary":
         setPeerStatistics(result.data.summary);
+        if (result.data.envelope) {
+          recordPeerEnvelope(result.data.envelope);
+        }
         break;
       case "telemetry.clockProbeResult": {
         const estimate = clockEstimator.observe({
@@ -201,10 +218,13 @@ export function openRoomConnection(options: OpenRoomConnectionOptions): WebSocke
         break;
       case "media.producerAvailable":
         if (role === "viewer") {
+          if (result.data.codec) {
+            setSelectedVideoCodec(result.data.codec);
+          }
           setStatusMessage("Connecting to the shared screen…");
           setMediaStatus("Negotiating the receive transport…");
           void getMediasoupSession()
-            .consume(result.data.producerId)
+            .consume(result.data.producerId, result.data.hdrMetadata)
             .then(() => {
               setStatusMessage("Receiving shared screen…");
               publishLifecycle("media.consumer.ready");
@@ -219,9 +239,11 @@ export function openRoomConnection(options: OpenRoomConnectionOptions): WebSocke
         }
         break;
       case "media.producerClosed":
-        mediasoupRef.current?.stopConsuming();
-        setMediaStatus("The host stopped sharing");
-        setStatusMessage("Connected — waiting for the shared screen");
+        if (mediasoupRef.current?.consumingProducerId === result.data.producerId) {
+          mediasoupRef.current.stopConsuming(result.data.producerId);
+          setMediaStatus("The host stopped sharing");
+          setStatusMessage("Connected — waiting for the shared screen");
+        }
         break;
       case "media.error":
         setMediaStatus(result.data.message);

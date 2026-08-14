@@ -1,0 +1,12 @@
+node_modules
+**/node_modules
+**/dist
+.git
+.codex
+.agents
+.cursor
+artifacts
+coverage
+infra/certs/*.pem
+*.log
+.DS_Store

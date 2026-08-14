@@ -65,7 +65,7 @@ export function useFrameMetrics(options: UseFrameMetricsOptions) {
           setLocalStatistics((current) => {
             const next = {
               ...current,
-              captureFps: sourcePreview ? sample.presentationFps : current.captureFps,
+              previewFps: sourcePreview ? sample.presentationFps : current.previewFps,
               presentationFps: sample.presentationFps,
               frameCadenceDeviationMs: sample.frameCadenceDeviationMs,
               freezeCount: Math.max(current.freezeCount ?? 0, sample.freezeCount),

@@ -17,6 +17,20 @@ export const VideoCodecCapabilitiesSchema = z.object({
 });
 export type VideoCodecCapabilities = z.infer<typeof VideoCodecCapabilitiesSchema>;
 
+export const HdrModeSchema = z.enum(["unknown", "sdr", "hdr-pq", "hdr-hlg"]);
+export type HdrMode = z.infer<typeof HdrModeSchema>;
+
+export const HdrMetadataSchema = z.object({
+  mode: HdrModeSchema,
+  primaries: z.string().nullable(),
+  transfer: z.string().nullable(),
+  matrix: z.string().nullable(),
+  fullRange: z.boolean().nullable(),
+  detectionSource: z.enum(["track-settings", "video-frame", "unknown"]),
+  passthroughRequested: z.boolean(),
+});
+export type HdrMetadata = z.infer<typeof HdrMetadataSchema>;
+
 export const BrowserInfoSchema = z.object({
   name: z.string().min(1),
   version: z.string().min(1),
@@ -37,6 +51,7 @@ export const StatisticsSummarySchema = z.object({
   renderWidth: nullableMetric,
   renderHeight: nullableMetric,
   captureFps: nullableMetric,
+  previewFps: nullableMetric,
   encodeFps: nullableMetric,
   decodeFps: nullableMetric,
   presentationFps: nullableMetric,
@@ -53,6 +68,8 @@ export const StatisticsSummarySchema = z.object({
   minRttMs: nullableMetric,
   rttTrendMs: nullableMetric,
   jitterMs: nullableMetric,
+  jitterBufferDelayMs: nullableMetric,
+  jitterBufferTargetMs: nullableMetric,
   packetLossPercent: nullableMetric,
   packetsLost: nullableMetric,
   nackCount: nullableMetric,
@@ -75,6 +92,9 @@ export const StatisticsSummarySchema = z.object({
   qualityLimitationReason: z.string().nullable(),
   encoderImplementation: z.string().nullable(),
   decoderImplementation: z.string().nullable(),
+  hdrMode: z.string().nullable(),
+  hdrStatus: z.string().nullable(),
+  displayHdrSupported: z.boolean().nullable(),
   h264ProfileLevelId: z.string().nullable(),
   requiredH264Level: z.string().nullable(),
   encoderCapabilitySupported: z.boolean().nullable(),
@@ -210,6 +230,7 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
     transportId: z.string().min(1),
     kind: z.literal("video"),
     rtpParameters: looseObject,
+    hdrMetadata: HdrMetadataSchema.optional(),
   }),
   z.object({
     type: z.literal("media.consume"),
@@ -249,6 +270,7 @@ export const ServerMessageSchema = z.discriminatedUnion("type", [
     endpointId,
     peerPresent: z.boolean(),
     selectedVideoCodec: VideoCodecSchema.nullable().optional(),
+    compatibleVideoCodecs: z.array(VideoCodecSchema).max(3).optional(),
   }),
   z.object({
     type: z.literal("room.peerUpdate"),
@@ -257,6 +279,7 @@ export const ServerMessageSchema = z.discriminatedUnion("type", [
     peerRole: RoleSchema,
     present: z.boolean(),
     selectedVideoCodec: VideoCodecSchema.nullable().optional(),
+    compatibleVideoCodecs: z.array(VideoCodecSchema).max(3).optional(),
   }),
   z.object({
     type: z.literal("room.error"),
@@ -269,6 +292,7 @@ export const ServerMessageSchema = z.discriminatedUnion("type", [
     protocolVersion,
     peerRole: RoleSchema,
     summary: StatisticsSummarySchema,
+    envelope: TelemetryEnvelopeSchema.optional(),
   }),
   z.object({
     type: z.literal("telemetry.clockProbeResult"),
@@ -347,6 +371,8 @@ export const ServerMessageSchema = z.discriminatedUnion("type", [
     type: z.literal("media.producerAvailable"),
     protocolVersion,
     producerId: z.string().min(1),
+    codec: VideoCodecSchema.optional(),
+    hdrMetadata: HdrMetadataSchema.optional(),
   }),
   z.object({
     type: z.literal("media.producerClosed"),

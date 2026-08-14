@@ -1,5 +1,6 @@
 import {
   createEmptyStatisticsSummary,
+  type HdrMetadata,
   type MediaRequestMessage,
   type MediaResponseMessage,
   PROTOCOL_VERSION,
@@ -8,24 +9,19 @@ import {
   type VideoCodec,
 } from "@conference/protocol";
 import { ClockOffsetEstimator } from "@conference/telemetry";
-import { formatMetric } from "@conference/telemetry/metrics";
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  type DisplayCaptureReport,
-  type DisplayCaptureSession,
-  normalizeDisplayCaptureError,
-  startDisplayCapture,
-} from "./capture/index.js";
-import { dimensions } from "./components/Diagnostics.js";
+import type { DisplayCaptureReport, DisplayCaptureSession } from "./capture/index.js";
 import { type ConnectionStatus, ScreenShareView } from "./components/ScreenShareView.js";
 import { useFrameMetrics } from "./hooks/useFrameMetrics.js";
+import { useMediaAdaptation } from "./hooks/useMediaAdaptation.js";
+import { useScreenCapture } from "./hooks/useScreenCapture.js";
 import { useSessionControls } from "./hooks/useSessionControls.js";
 import { useTelemetry } from "./hooks/useTelemetry.js";
-import { recommendH264BitrateBps } from "./media/h264Bitrate.js";
-import { probeH264EncodingCapability, requiredH264Level } from "./media/h264Capability.js";
+import { describeHdrPath, detectHdrDisplaySupport, inspectTrackHdr } from "./media/hdr.js";
 import { loadHostMediaSettings, saveHostMediaSettings } from "./media/hostSettings.js";
-import { MediasoupSession } from "./media/MediasoupSession.js";
-import { detectVideoCodecCapabilities, displayVideoCodec } from "./media/videoCodecs.js";
+import { MediasoupSession, type ProducerSettings } from "./media/MediasoupSession.js";
+import { createProducerSettings } from "./media/producerPolicy.js";
+import { detectVideoCodecCapabilities } from "./media/videoCodecs.js";
 import { generateSessionCode, isCompleteSessionCode } from "./sessionCode.js";
 import {
   openRoomConnection,
@@ -42,12 +38,15 @@ export function App() {
   const [statusMessage, setStatusMessage] = useState("Not connected");
   const [peerPresent, setPeerPresent] = useState(false);
   const [selectedVideoCodec, setSelectedVideoCodec] = useState<VideoCodec | null>(null);
+  const [compatibleVideoCodecs, setCompatibleVideoCodecs] = useState<VideoCodec[]>([]);
   const [localStatistics, setLocalStatistics] = useState(createEmptyStatisticsSummary);
   const [peerStatistics, setPeerStatistics] = useState(createEmptyStatisticsSummary);
   const [hostSettings, setHostSettings] = useState(loadHostMediaSettings);
   const [captureActive, setCaptureActive] = useState(false);
   const [mediaStatus, setMediaStatus] = useState("Media idle");
   const [remoteTrack, setRemoteTrack] = useState<MediaStreamTrack | null>(null);
+  const [sourceHdrMetadata, setSourceHdrMetadata] = useState<HdrMetadata | null>(null);
+  const [decodedHdrMetadata, setDecodedHdrMetadata] = useState<HdrMetadata | null>(null);
   const [captureMessage, setCaptureMessage] = useState(
     "Select a screen, window, or tab to inspect its actual capture geometry.",
   );
@@ -60,27 +59,52 @@ export function App() {
   const captureRef = useRef<DisplayCaptureSession | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const remoteVideoRef = useRef<HTMLVideoElement | null>(null);
+  const hdrInspectionTrackRef = useRef<MediaStreamTrack | null>(null);
   const mediasoupRef = useRef<MediasoupSession | null>(null);
-  const producerSettingsRef = useRef<{ maxFps: number; maxBitrateBps: number } | null>(null);
+  const producerSettingsRef = useRef<ProducerSettings | null>(null);
   const selectedVideoCodecRef = useRef<VideoCodec | null>(null);
   const pendingMediaRef = useRef(new Map<string, PendingMediaRequest>());
   const clockEstimatorRef = useRef(new ClockOffsetEstimator());
   const localStatisticsRef = useRef(localStatistics);
+  const sampleObserverRef = useRef<((summary: StatisticsSummary) => void) | null>(null);
   const endpointId = useMemo(() => crypto.randomUUID(), []);
   const localVideoCodecs = useMemo(detectVideoCodecCapabilities, []);
+  const hdrDisplaySupport = useMemo(detectHdrDisplaySupport, []);
+  const hdrStatus = describeHdrPath({
+    source: sourceHdrMetadata,
+    decoded: role === "host" ? sourceHdrMetadata : decodedHdrMetadata,
+    display: hdrDisplaySupport,
+    codec: selectedVideoCodec,
+  });
 
   localStatisticsRef.current = localStatistics;
   selectedVideoCodecRef.current = selectedVideoCodec;
+  const { observeMediaSample, resetMediaAdaptation } = useMediaAdaptation({
+    captureRef,
+    hostSettings,
+    localStatisticsRef,
+    mediasoupRef,
+    producerSettingsRef,
+    remoteVideoRef,
+    role,
+    selectedVideoCodecRef,
+    setLocalStatistics,
+    setMediaStatus,
+    setSelectedVideoCodec,
+  });
+  sampleObserverRef.current = observeMediaSample;
 
   const {
     artifactCount: telemetryArtifactCount,
     download: downloadTelemetry,
     publish: publishTelemetry,
     publishLifecycle: publishLifecycleEvent,
+    recordPeerEnvelope,
   } = useTelemetry({
     endpointId,
     localStatisticsRef,
     mediasoupRef,
+    onSampleRef: sampleObserverRef,
     role,
     roomId,
     setLocalStatistics,
@@ -116,10 +140,27 @@ export function App() {
   useEffect(() => {
     saveHostMediaSettings(hostSettings);
     if (producerSettingsRef.current) {
-      producerSettingsRef.current = {
-        maxFps: hostSettings.maxFps,
+      const currentProducerSettings = producerSettingsRef.current;
+      const settings = captureRef.current?.report.settingsAfterConstraints;
+      producerSettingsRef.current = createProducerSettings({
+        width: settings?.width ?? null,
+        height: settings?.height ?? null,
+        maxFps: currentProducerSettings.maxFps,
         maxBitrateBps: hostSettings.maxBitrateBps,
-      };
+        contentMode: "auto",
+        ...(currentProducerSettings.scaleResolutionDownBy
+          ? { scaleResolutionDownBy: currentProducerSettings.scaleResolutionDownBy }
+          : {}),
+        ...(currentProducerSettings.hdrMetadata
+          ? { hdrMetadata: currentProducerSettings.hdrMetadata }
+          : {}),
+        ...(currentProducerSettings.preferredCodec
+          ? { preferredCodec: currentProducerSettings.preferredCodec }
+          : {}),
+        ...(currentProducerSettings.fallbackCodec
+          ? { fallbackCodec: currentProducerSettings.fallbackCodec }
+          : {}),
+      });
     }
     setLocalStatistics((current) => {
       if (current.targetBitrateBps === null) {
@@ -131,8 +172,14 @@ export function App() {
     });
     void mediasoupRef.current
       ?.updateProducerSettings({
-        maxFps: hostSettings.maxFps,
-        maxBitrateBps: hostSettings.maxBitrateBps,
+        ...(producerSettingsRef.current ??
+          createProducerSettings({
+            width: null,
+            height: null,
+            maxFps: hostSettings.maxFps,
+            maxBitrateBps: hostSettings.maxBitrateBps,
+            contentMode: "auto",
+          })),
       })
       .catch((error: unknown) => {
         setMediaStatus(error instanceof Error ? error.message : "Could not update encoder");
@@ -142,6 +189,19 @@ export function App() {
   useEffect(() => {
     localStorage.setItem(DEBUG_OVERLAY_STORAGE_KEY, String(debugOverlayEnabled));
   }, [debugOverlayEnabled]);
+
+  useEffect(() => {
+    setLocalStatistics((current) => {
+      const next = {
+        ...current,
+        hdrMode: sourceHdrMetadata?.mode ?? null,
+        hdrStatus,
+        displayHdrSupported: hdrDisplaySupport.highDynamicRange,
+      };
+      localStatisticsRef.current = next;
+      return next;
+    });
+  }, [hdrDisplaySupport.highDynamicRange, hdrStatus, sourceHdrMetadata?.mode]);
 
   function requestMedia(message: MediaRequestMessage): Promise<MediaResponseMessage> {
     const socket = socketRef.current;
@@ -167,7 +227,19 @@ export function App() {
     if (!session) {
       session = new MediasoupSession(requestMedia, {
         onState: setMediaStatus,
-        onRemoteTrack: setRemoteTrack,
+        onRemoteTrack: (track) => {
+          hdrInspectionTrackRef.current = track;
+          setRemoteTrack(track);
+          setDecodedHdrMetadata(null);
+          if (track) {
+            void inspectTrackHdr(track, true).then((metadata) => {
+              if (hdrInspectionTrackRef.current === track) {
+                setDecodedHdrMetadata(metadata);
+              }
+            });
+          }
+        },
+        onRemoteHdrMetadata: setSourceHdrMetadata,
         onTransportState: (direction, transportState) => {
           setLocalStatistics((current) => {
             const next = {
@@ -201,6 +273,32 @@ export function App() {
       setRoomId,
       setStatusMessage,
     });
+  const { clearCapture, shareScreen } = useScreenCapture({
+    captureRef,
+    compatibleVideoCodecs,
+    getMediasoupSession,
+    hostSettings,
+    localStatisticsRef,
+    localVideoCodecs,
+    mediasoupRef,
+    peerPresent,
+    producerSettingsRef,
+    publishLifecycle: publishLifecycleEvent,
+    resetCodecFallback: resetMediaAdaptation,
+    selectedVideoCodecRef,
+    setCaptureActive,
+    setCaptureMessage,
+    setCaptureReport,
+    setHostSettings,
+    setLocalStatistics,
+    setMediaStatus,
+    setSelectedVideoCodec,
+    setSourceHdrMetadata,
+    setStatusMessage,
+    status,
+    stopFrameMeasurement,
+    videoRef,
+  });
 
   function joinRoom(): void {
     if (!isCompleteSessionCode(roomId)) {
@@ -224,6 +322,7 @@ export function App() {
       pendingMediaRef,
       producerSettingsRef,
       publishLifecycle: publishLifecycleEvent,
+      recordPeerEnvelope,
       role,
       roomId,
       setLocalStatistics,
@@ -231,6 +330,7 @@ export function App() {
       setPeerPresent,
       setPeerStatistics,
       setSelectedVideoCodec,
+      setCompatibleVideoCodecs,
       setStatus,
       setStatusMessage,
       socketRef,
@@ -253,164 +353,18 @@ export function App() {
     mediasoupRef.current?.close();
     mediasoupRef.current = null;
     setRemoteTrack(null);
+    setSourceHdrMetadata(null);
+    setDecodedHdrMetadata(null);
     setMediaStatus("Media idle");
     setStatus("idle");
     setStatusMessage("Not connected");
     setPeerPresent(false);
     setSelectedVideoCodec(null);
+    setCompatibleVideoCodecs([]);
     setPeerStatistics(createEmptyStatisticsSummary());
     if (role === "host") {
       setRoomId(generateSessionCode());
       setCodeCopied(false);
-    }
-  }
-
-  function clearCapture(message: string): void {
-    const session = captureRef.current;
-    captureRef.current = null;
-    producerSettingsRef.current = null;
-    void mediasoupRef.current?.stopProducing().catch((error: unknown) => {
-      setMediaStatus(error instanceof Error ? error.message : "Could not stop producer");
-    });
-    stopFrameMeasurement();
-    session?.stop();
-    if (videoRef.current) {
-      videoRef.current.srcObject = null;
-    }
-    setCaptureActive(false);
-    setCaptureReport(null);
-    setCaptureMessage(message);
-    const empty = createEmptyStatisticsSummary();
-    localStatisticsRef.current = empty;
-    setLocalStatistics(empty);
-    if (session) {
-      publishLifecycleEvent("capture.stopped", empty);
-    }
-  }
-
-  async function shareScreen(): Promise<void> {
-    clearCapture("Opening browser screen picker…");
-    try {
-      const session = await startDisplayCapture({
-        maxFramerate: null,
-        contentMode: hostSettings.contentMode,
-        requestNativePixels: true,
-        pixelRatioOverride: null,
-      });
-      captureRef.current = session;
-      session.track.addEventListener(
-        "ended",
-        () => clearCapture("Sharing ended from the browser controls."),
-        { once: true },
-      );
-      if (videoRef.current) {
-        videoRef.current.srcObject = session.stream;
-      }
-
-      const settings = session.report.settingsAfterConstraints;
-      const selectedMaxFps =
-        session.report.capabilities.frameRate.max ?? settings.frameRate ?? hostSettings.maxFps;
-      const producerMaxFps = hostSettings.fpsUserEdited
-        ? Math.min(hostSettings.maxFps, selectedMaxFps)
-        : selectedMaxFps;
-      const recommendedBitrate =
-        settings.width !== null && settings.height !== null
-          ? recommendH264BitrateBps({
-              width: settings.width,
-              height: settings.height,
-              fps: producerMaxFps,
-            })
-          : hostSettings.maxBitrateBps;
-      const producerMaxBitrate = hostSettings.bitrateUserEdited
-        ? hostSettings.maxBitrateBps
-        : recommendedBitrate;
-      producerSettingsRef.current = {
-        maxFps: producerMaxFps,
-        maxBitrateBps: producerMaxBitrate,
-      };
-      setHostSettings((current) => ({
-        ...current,
-        maxFps: current.fpsUserEdited ? current.maxFps : selectedMaxFps,
-        maxBitrateBps: current.bitrateUserEdited ? current.maxBitrateBps : recommendedBitrate,
-      }));
-      setCaptureActive(true);
-      setStatusMessage(
-        peerPresent ? "Starting screen share…" : "Screen ready — waiting for a viewer",
-      );
-      setCaptureReport(session.report);
-      setCaptureMessage(
-        `Track reports ${dimensions(settings.width, settings.height)} at ${formatMetric(
-          settings.frameRate,
-          " FPS",
-        )}; measured preview FPS appears in Debug settings.`,
-      );
-      const initialStatistics: StatisticsSummary = {
-        ...createEmptyStatisticsSummary(),
-        codec: selectedVideoCodecRef.current
-          ? displayVideoCodec(selectedVideoCodecRef.current)
-          : null,
-        sourceWidth: settings.width,
-        sourceHeight: settings.height,
-        captureFps: settings.frameRate,
-        requiredH264Level:
-          selectedVideoCodecRef.current === "video/H264" &&
-          settings.width !== null &&
-          settings.height !== null
-            ? requiredH264Level(settings.width, settings.height, producerMaxFps)
-            : null,
-        targetBitrateBps: producerMaxBitrate,
-        controllerState: "measurement-only",
-      };
-      localStatisticsRef.current = initialStatistics;
-      setLocalStatistics(initialStatistics);
-      publishLifecycleEvent("capture.started", initialStatistics);
-      if (
-        selectedVideoCodecRef.current === "video/H264" &&
-        settings.width !== null &&
-        settings.height !== null
-      ) {
-        void probeH264EncodingCapability({
-          width: settings.width,
-          height: settings.height,
-          fps: producerMaxFps,
-          bitrateBps: producerMaxBitrate,
-        }).then((result) => {
-          setLocalStatistics((current) => {
-            const next = {
-              ...current,
-              requiredH264Level: result.requiredLevel,
-              encoderCapabilitySupported: result.supported,
-              encoderCapabilitySmooth: result.smooth,
-              encoderCapabilityPowerEfficient: result.powerEfficient,
-            };
-            localStatisticsRef.current = next;
-            return next;
-          });
-        });
-      }
-      if (status === "joined" && selectedVideoCodecRef.current) {
-        try {
-          await getMediasoupSession().startProducing(
-            session.track,
-            {
-              maxFps: producerMaxFps,
-              maxBitrateBps: producerMaxBitrate,
-            },
-            selectedVideoCodecRef.current,
-          );
-          setStatusMessage("Sharing screen");
-        } catch (error) {
-          setMediaStatus(error instanceof Error ? error.message : "Could not start video producer");
-        }
-      } else if (status === "joined") {
-        setMediaStatus("Waiting for a viewer with a compatible AV1 or H.264 receive codec");
-      } else {
-        setMediaStatus("Join a room to send the captured screen");
-      }
-    } catch (error) {
-      const captureError = normalizeDisplayCaptureError(error);
-      setCaptureMessage(captureError.message);
-      setCaptureActive(false);
     }
   }
 
@@ -429,6 +383,13 @@ export function App() {
       debugOverlayEnabled={debugOverlayEnabled}
       downloadTelemetry={downloadTelemetry}
       hostSettings={hostSettings}
+      hdrOutputEnabled={
+        hdrDisplaySupport.highDynamicRange &&
+        (role === "host"
+          ? sourceHdrMetadata?.mode === "hdr-pq" || sourceHdrMetadata?.mode === "hdr-hlg"
+          : decodedHdrMetadata?.mode === "hdr-pq" || decodedHdrMetadata?.mode === "hdr-hlg")
+      }
+      hdrStatus={hdrStatus}
       joinRoom={joinRoom}
       joined={joined}
       leaveRoom={leaveRoom}

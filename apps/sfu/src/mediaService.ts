@@ -193,6 +193,11 @@ export class MediaService {
     if (!this.#router.canConsume({ producerId, rtpCapabilities })) {
       throw new Error("CANNOT_CONSUME");
     }
+    for (const resource of this.#consumers.values()) {
+      if (resource.endpointId === endpointId) {
+        resource.value.close();
+      }
+    }
     const consumer = await transport.consume({
       producerId,
       rtpCapabilities,
@@ -218,6 +223,7 @@ export class MediaService {
       throw new Error("Consumer not found");
     }
     await resource.value.resume();
+    await resource.value.requestKeyFrame();
   }
 
   async getEndpointStats(endpointId: string): Promise<ServerMediaStatistics> {

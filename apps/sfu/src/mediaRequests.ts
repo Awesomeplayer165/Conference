@@ -3,6 +3,7 @@ import type { WSContext } from "hono/ws";
 import type { DtlsParameters, RtpCapabilities, RtpParameters } from "mediasoup/types";
 import type { MediaService } from "./mediaService.js";
 import { connectionKey, connectionMetadata, rooms, send } from "./roomState.js";
+import { routedVideoCodec } from "./videoCodecs.js";
 
 function mediaError(
   socket: WSContext,
@@ -105,20 +106,38 @@ export async function handleMediaRequest(
           );
           return;
         }
-        if (room.producerId) {
-          media.closeProducer(metadata.endpointId, room.producerId);
-        }
+        const replacedProducerId = room.producerId;
         const producer = await media.produce(
           metadata.endpointId,
           message.transportId,
           message.rtpParameters as unknown as RtpParameters,
         );
         room.producerId = producer.id;
+        const producerCodec = routedVideoCodec(
+          producer.rtpParameters.codecs.find(
+            (codec) => !codec.mimeType.toLowerCase().endsWith("/rtx"),
+          )?.mimeType,
+        );
+        if (producerCodec) {
+          room.producerCodec = producerCodec;
+        } else {
+          delete room.producerCodec;
+        }
+        if (message.hdrMetadata) {
+          room.producerHdrMetadata = message.hdrMetadata;
+        } else {
+          delete room.producerHdrMetadata;
+        }
+        if (replacedProducerId && replacedProducerId !== producer.id) {
+          media.closeProducer(metadata.endpointId, replacedProducerId);
+        }
         producer.observer.once("close", () => {
           if (room.producerId !== producer.id) {
             return;
           }
           delete room.producerId;
+          delete room.producerCodec;
+          delete room.producerHdrMetadata;
           if (room.viewer) {
             send(room.viewer.socket, {
               type: "media.producerClosed",
@@ -138,6 +157,8 @@ export async function handleMediaRequest(
             type: "media.producerAvailable",
             protocolVersion: PROTOCOL_VERSION,
             producerId: producer.id,
+            ...(producerCodec ? { codec: producerCodec } : {}),
+            ...(message.hdrMetadata ? { hdrMetadata: message.hdrMetadata } : {}),
           });
         }
         break;

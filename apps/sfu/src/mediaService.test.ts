@@ -3,6 +3,7 @@ import {
   defaultMediasoupListenIps,
   mediasoupWebRtcServerConfig,
   parseMediasoupPort,
+  parseSocketBufferBytes,
 } from "./mediaConfig.js";
 import { fractionLostToPercent, MediaService } from "./mediaService.js";
 
@@ -58,6 +59,8 @@ describe("mediasoup ICE listen addresses", () => {
     expect(parseMediasoupPort("50000")).toBe(50_000);
     expect(() => parseMediasoupPort("50000-50100")).toThrow();
     expect(() => parseMediasoupPort("80")).toThrow();
+    expect(parseSocketBufferBytes(undefined)).toBe(4 * 1024 * 1024);
+    expect(() => parseSocketBufferBytes("1024")).toThrow();
   });
 
   it("uses one shared UDP/TCP port and the configured announced address", () => {
@@ -76,12 +79,16 @@ describe("mediasoup ICE listen addresses", () => {
         ip: "0.0.0.0",
         announcedAddress: "100.64.0.6",
         port: 50_000,
+        sendBufferSize: 4 * 1024 * 1024,
+        recvBufferSize: 4 * 1024 * 1024,
       },
       {
         protocol: "tcp",
         ip: "0.0.0.0",
         announcedAddress: "100.64.0.6",
         port: 50_000,
+        sendBufferSize: 4 * 1024 * 1024,
+        recvBufferSize: 4 * 1024 * 1024,
       },
     ]);
   });

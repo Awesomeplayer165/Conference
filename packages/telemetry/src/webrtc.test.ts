@@ -172,6 +172,67 @@ describe("WebRTC telemetry normalization", () => {
     expect(sample.captureFps).toBeNull();
   });
 
+  it("selects a new progressing sender instead of a retained high-byte stale sender", () => {
+    const normalizer = new WebRtcStatsNormalizer();
+    const first = senderReport(1_000, 40_000_000, 7_700, 20_000, 100);
+    normalizer.sample({ sender: first, receiver: null, transport: null });
+
+    const second = senderReport(2_000, 40_000_000, 7_700, 20_000, 100);
+    (second.get("outbound") as RTCStats & Record<string, unknown>).active = true;
+    const replacement = {
+      ...(second.get("outbound") as RTCStats & Record<string, unknown>),
+      id: "outbound-replacement",
+      ssrc: 5678,
+      bytesSent: 100_000,
+      framesEncoded: 60,
+      packetsSent: 60,
+      qpSum: 600,
+      totalEncodeTime: 0.6,
+    };
+    (second as unknown as Map<string, RTCStats>).set(replacement.id, replacement);
+    const selected = normalizer.sample({ sender: second, receiver: null, transport: null });
+
+    expect(selected.framesEncoded).toBe(60);
+    expect(selected.mediaFlowState).toBe("starting");
+  });
+
+  it("keeps selecting the replacement once its low counters begin progressing", () => {
+    const normalizer = new WebRtcStatsNormalizer();
+    const initial = senderReport(1_000, 40_000_000, 7_700, 20_000, 100);
+    normalizer.sample({ sender: initial, receiver: null, transport: null });
+    const replacementSample = (timestamp: number, bytesSent: number, framesEncoded: number) => {
+      const value = senderReport(timestamp, 40_000_000, 7_700, 20_000, 100);
+      const replacement = {
+        ...(value.get("outbound") as RTCStats & Record<string, unknown>),
+        id: "outbound-replacement",
+        ssrc: 5678,
+        bytesSent,
+        framesEncoded,
+        packetsSent: framesEncoded,
+        qpSum: framesEncoded * 10,
+        totalEncodeTime: framesEncoded * 0.01,
+        active: true,
+      };
+      (value as unknown as Map<string, RTCStats>).set(replacement.id, replacement);
+      return value;
+    };
+    normalizer.sample({
+      sender: replacementSample(2_000, 100_000, 60),
+      receiver: null,
+      transport: null,
+    });
+    const selected = normalizer.sample({
+      sender: replacementSample(3_000, 350_000, 120),
+      receiver: null,
+      transport: null,
+    });
+
+    expect(selected.framesEncoded).toBe(120);
+    expect(selected.encodeFps).toBe(60);
+    expect(selected.actualBitrateBps).toBe(2_000_000);
+    expect(selected.mediaFlowState).toBe("flowing");
+  });
+
   it("treats zero frame geometry and no-frame latency as unavailable", () => {
     const normalizer = new WebRtcStatsNormalizer();
     const inbound = (timestamp: number): RTCStatsReport =>
