@@ -33,6 +33,8 @@ function senderReport(
       mediaSourceId: "source",
       qualityLimitationReason: "none",
       targetBitrate: 12_000_000,
+      encoderImplementation: "ExternalEncoder",
+      powerEfficientEncoder: true,
     },
     {
       id: "source",
@@ -110,6 +112,8 @@ describe("WebRTC telemetry normalization", () => {
       actualBitrateBps: 8_000,
       availableOutgoingBitrateBps: 20_000_000,
       encoderTargetBitrateBps: 12_000_000,
+      encoderImplementation: "ExternalEncoder",
+      encoderPowerEfficient: true,
       rttMs: 20,
       minRttMs: 20,
       qpAverage: 10,

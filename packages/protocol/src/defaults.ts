@@ -84,6 +84,8 @@ export function createEmptyStatisticsSummary(): StatisticsSummary {
     qualityLimitationReason: null,
     encoderImplementation: null,
     decoderImplementation: null,
+    encoderPowerEfficient: null,
+    decoderPowerEfficient: null,
     hdrMode: null,
     hdrStatus: null,
     displayHdrSupported: null,

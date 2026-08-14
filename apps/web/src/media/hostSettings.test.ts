@@ -18,6 +18,7 @@ describe("host media settings", () => {
         fpsUserEdited: true,
         bitrateUserEdited: true,
         hdrEnabled: false,
+        audioEnabled: false,
       },
       storage,
     );
@@ -29,6 +30,7 @@ describe("host media settings", () => {
       fpsUserEdited: true,
       bitrateUserEdited: true,
       hdrEnabled: false,
+      audioEnabled: false,
     });
   });
 });

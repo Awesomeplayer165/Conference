@@ -8,6 +8,7 @@ interface UseFrameMetricsOptions {
   captureActive: boolean;
   captureRef: React.RefObject<DisplayCaptureSession | null>;
   localStatisticsRef: React.RefObject<StatisticsSummary>;
+  remoteAudioTrack: MediaStreamTrack | null;
   remoteTrack: MediaStreamTrack | null;
   remoteVideoRef: React.RefObject<HTMLVideoElement | null>;
   role: "host" | "viewer";
@@ -22,6 +23,7 @@ export function useFrameMetrics(options: UseFrameMetricsOptions) {
     captureActive,
     captureRef,
     localStatisticsRef,
+    remoteAudioTrack,
     remoteTrack,
     remoteVideoRef,
     role,
@@ -135,9 +137,17 @@ export function useFrameMetrics(options: UseFrameMetricsOptions) {
   useEffect(() => {
     const video = remoteVideoRef.current;
     if (video) {
-      video.srcObject = remoteTrack ? new MediaStream([remoteTrack]) : null;
+      const tracks = [remoteTrack, remoteAudioTrack].filter(
+        (track): track is MediaStreamTrack => track !== null,
+      );
+      video.srcObject = tracks.length > 0 ? new MediaStream(tracks) : null;
+      if (remoteTrack) {
+        void video.play().catch(() => {
+          setStatusMessage("Viewing shared screen — click the video to enable audio");
+        });
+      }
     }
-  }, [remoteTrack, remoteVideoRef]);
+  }, [remoteAudioTrack, remoteTrack, remoteVideoRef, setStatusMessage]);
 
   useEffect(() => {
     const video = role === "host" ? videoRef.current : remoteVideoRef.current;

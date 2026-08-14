@@ -125,14 +125,20 @@ export async function createEndpoint(
   };
 }
 
-export async function waitForProducer(events: ServerMessage[]): Promise<string> {
+export async function waitForProducer(
+  events: ServerMessage[],
+  kind: "audio" | "video" = "video",
+): Promise<string> {
   for (let attempt = 0; attempt < 100; attempt += 1) {
-    const index = events.findIndex((candidate) => candidate.type === "media.producerAvailable");
+    const index = events.findIndex(
+      (candidate) =>
+        candidate.type === "media.producerAvailable" && (candidate.kind ?? "video") === kind,
+    );
     const event = index < 0 ? undefined : events.splice(index, 1)[0];
     if (event?.type === "media.producerAvailable") {
       return event.producerId;
     }
     await wait(25);
   }
-  throw new Error("Viewer did not receive producer availability");
+  throw new Error(`Viewer did not receive ${kind} producer availability`);
 }

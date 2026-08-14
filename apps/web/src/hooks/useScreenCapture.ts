@@ -108,10 +108,15 @@ export function useScreenCapture(options: ScreenCaptureOptions) {
     clearCapture("Opening browser screen picker…");
     try {
       const session = await startDisplayCapture({
-        maxFramerate: hostSettings.fpsUserEdited ? hostSettings.maxFps : null,
+        // Always ask the capture stack for the configured ceiling. Chromium can
+        // report a conservative 60 FPS capability even when the platform
+        // capturer accepts a higher ideal, so automatic mode must not silently
+        // turn the application's 120 FPS preference into a 60 FPS request.
+        maxFramerate: hostSettings.maxFps,
         contentMode: hostSettings.contentMode,
         requestNativePixels: true,
         pixelRatioOverride: null,
+        includeAudio: hostSettings.audioEnabled,
       });
       captureRef.current = session;
       session.track.addEventListener(
@@ -173,14 +178,13 @@ export function useScreenCapture(options: ScreenCaptureOptions) {
       maxBitrateBps: producerMaxBitrate,
       contentMode: hostSettings.contentMode,
       hdrMetadata,
-      preferredCodec: runtimeCodec,
+      preferredCodec,
       scaleResolutionDownBy: encodingPlan.scaleResolutionDownBy,
       ...(encodingPlan.fallbackCodec ? { fallbackCodec: encodingPlan.fallbackCodec } : {}),
     });
     producerSettingsRef.current = producerSettings;
     setHostSettings((current) => ({
       ...current,
-      maxFps: current.fpsUserEdited ? current.maxFps : producerMaxFps,
       maxBitrateBps: current.bitrateUserEdited ? current.maxBitrateBps : recommendedBitrate,
     }));
     setCaptureActive(true);
@@ -192,7 +196,7 @@ export function useScreenCapture(options: ScreenCaptureOptions) {
       `Track reports ${dimensions(settings.width, settings.height)} at ${formatMetric(
         settings.frameRate,
         " FPS",
-      )}; measured preview FPS appears in Debug settings.`,
+      )}; ${session.audioTrack ? "system audio ready" : "no display audio selected"}; measured preview FPS appears in Debug settings.`,
     );
     const activeCapability = encodingPlan.capability;
     const initialStatistics: StatisticsSummary = {
@@ -220,7 +224,12 @@ export function useScreenCapture(options: ScreenCaptureOptions) {
         : selectedVideoCodecRef.current;
       setSelectedVideoCodec(activeCodec);
       try {
-        await getMediasoupSession().startProducing(session.track, producerSettings, activeCodec);
+        await getMediasoupSession().startProducing(
+          session.track,
+          producerSettings,
+          activeCodec,
+          session.audioTrack,
+        );
         setStatusMessage("Sharing screen");
       } catch (error) {
         setMediaStatus(error instanceof Error ? error.message : "Could not start video producer");

@@ -19,9 +19,19 @@ export function expectMediaResponse<T extends MediaResponseMessage["type"]>(
 }
 
 export function findNegotiatedCodec(codecs: RtpCapabilities["codecs"], selectedCodec: VideoCodec) {
-  return codecs?.find(
+  const matches = codecs?.filter(
     (codec) =>
       codec.mimeType.toLowerCase() === selectedCodec.toLowerCase() &&
       (selectedCodec !== "video/H264" || codec.parameters?.["packetization-mode"] === 1),
+  );
+  if (selectedCodec !== "video/H264") {
+    return matches?.[0];
+  }
+  return (
+    matches?.find((codec) =>
+      String(codec.parameters?.["profile-level-id"] ?? "")
+        .toLowerCase()
+        .startsWith("4200"),
+    ) ?? matches?.[0]
   );
 }

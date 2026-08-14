@@ -81,6 +81,19 @@
   background: #080a0d;
 }
 
+.audio-status {
+  position: absolute;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 2;
+  border: 1px solid rgb(255 255 255 / 14%);
+  border-radius: 999px;
+  padding: 0.35rem 0.65rem;
+  background: rgb(11 15 22 / 82%);
+  color: var(--text-secondary);
+  font-size: 0.75rem;
+}
+
 .video-stage-active {
   min-height: 0;
 }
@@ -195,6 +208,19 @@
 .telemetry-overlay dd {
   margin: 0;
   color: #edf0f3;
+}
+
+.telemetry-overlay .overlay-controller-state {
+  display: block;
+  padding-top: 0.45rem;
+  border-top: 1px solid rgb(255 255 255 / 9%);
+  margin-top: 0.35rem;
+}
+
+.telemetry-overlay .overlay-controller-state dd {
+  margin-top: 0.15rem;
+  color: #bfc5cd;
+  line-height: 1.35;
 }
 
 .quality-panel {

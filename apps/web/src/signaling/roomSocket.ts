@@ -169,7 +169,7 @@ export function openRoomConnection(options: OpenRoomConnectionOptions): WebSocke
                 : codec;
             setSelectedVideoCodec(runtimeCodec);
             void getMediasoupSession()
-              .startProducing(capture.track, settings, runtimeCodec)
+              .startProducing(capture.track, settings, runtimeCodec, capture.audioTrack)
               .then(() => setStatusMessage("Sharing screen"))
               .catch((error: unknown) => {
                 setMediaStatus(
@@ -219,15 +219,18 @@ export function openRoomConnection(options: OpenRoomConnectionOptions): WebSocke
         break;
       case "media.producerAvailable":
         if (role === "viewer") {
+          const producerKind = result.data.kind ?? "video";
           if (result.data.codec) {
             setSelectedVideoCodec(result.data.codec);
           }
           setStatusMessage("Connecting to the shared screen…");
           setMediaStatus("Negotiating the receive transport…");
           void getMediasoupSession()
-            .consume(result.data.producerId, result.data.hdrMetadata)
+            .consume(result.data.producerId, producerKind, result.data.hdrMetadata)
             .then(() => {
-              setStatusMessage("Receiving shared screen…");
+              if (producerKind === "video") {
+                setStatusMessage("Receiving shared screen…");
+              }
               publishLifecycle("media.consumer.ready");
             })
             .catch((error: unknown) => {
@@ -240,10 +243,12 @@ export function openRoomConnection(options: OpenRoomConnectionOptions): WebSocke
         }
         break;
       case "media.producerClosed":
-        if (mediasoupRef.current?.consumingProducerId === result.data.producerId) {
+        if (mediasoupRef.current?.isConsumingProducer(result.data.producerId)) {
           mediasoupRef.current.stopConsuming(result.data.producerId);
-          setMediaStatus("The host stopped sharing");
-          setStatusMessage("Connected — waiting for the shared screen");
+          if ((result.data.kind ?? "video") === "video") {
+            setMediaStatus("The host stopped sharing");
+            setStatusMessage("Connected — waiting for the shared screen");
+          }
         }
         break;
       case "media.codecSwitchRequested": {

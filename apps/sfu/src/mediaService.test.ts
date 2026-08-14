@@ -110,6 +110,9 @@ describe("mediasoup Stage 3 runtime", () => {
       expect(media.routerRtpCapabilities.codecs?.map((codec) => codec.mimeType)).toContain(
         "video/AV1",
       );
+      expect(media.routerRtpCapabilities.codecs?.map((codec) => codec.mimeType)).toContain(
+        "audio/opus",
+      );
       expect(media.routerRtpCapabilities.codecs?.map((codec) => codec.mimeType)).not.toContain(
         "video/H265",
       );

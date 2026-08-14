@@ -5,7 +5,8 @@ import {
   type VideoCodecCapabilities,
 } from "@conference/protocol";
 import { WebRtcStatsNormalizer } from "@conference/telemetry";
-import { startPatternCanvas } from "./harness/pattern.js";
+import { startAudioPatternSource } from "./harness/audio.js";
+import { startPatternSource } from "./harness/pattern.js";
 import { createEndpoint, wait, waitForProducer, withTimeout } from "./harness/signaling.js";
 import {
   type BalancedControllerAction,
@@ -90,11 +91,14 @@ function minimum(samples: Partial<StatisticsSummary>[], key: keyof StatisticsSum
 }
 
 interface ProbeCycleOptions {
+  adaptive: boolean;
+  audioTrack: MediaStreamTrack | null;
   codec: VideoCodec;
   codecLabel: string;
   cycle: number;
   fps: number;
   getRemoteTrack: () => MediaStreamTrack | null;
+  getRemoteAudioTrack: () => MediaStreamTrack | null;
   height: number;
   hostSession: MediasoupSession;
   maxBitrateBps: number;
@@ -109,11 +113,14 @@ interface ProbeCycleOptions {
 
 async function runCycle(options: ProbeCycleOptions): Promise<Record<string, unknown>> {
   const {
+    adaptive,
+    audioTrack,
     codec,
     codecLabel,
     cycle,
     fps,
     getRemoteTrack,
+    getRemoteAudioTrack,
     height,
     hostSession,
     maxBitrateBps,
@@ -135,21 +142,33 @@ async function runCycle(options: ProbeCycleOptions): Promise<Record<string, unkn
     scaleResolutionDownBy: 1,
   };
   await withTimeout(
-    hostSession.startProducing(track, producerSettings, codec),
+    hostSession.startProducing(track, producerSettings, codec, audioTrack),
     10_000,
     `${codecLabel} producer did not start within 10 seconds`,
   );
   resultElement.textContent = `Cycle ${cycle}: negotiating ${codecLabel} consumer…`;
   await withTimeout(
-    viewerSession.consume(await waitForProducer(viewerEvents)),
+    viewerSession.consume(await waitForProducer(viewerEvents, "video"), "video"),
     10_000,
     `${codecLabel} consumer did not start within 10 seconds`,
   );
+  if (audioTrack) {
+    await withTimeout(
+      viewerSession.consume(await waitForProducer(viewerEvents, "audio"), "audio"),
+      10_000,
+      "Display-audio consumer did not start within 10 seconds",
+    );
+  }
   const remoteTrack = getRemoteTrack();
   if (!remoteTrack) {
     throw new Error("Consumer did not expose a remote track");
   }
-  remoteVideo.srcObject = new MediaStream([remoteTrack]);
+  const remoteAudioTrack = getRemoteAudioTrack();
+  remoteVideo.srcObject = new MediaStream(
+    [remoteTrack, remoteAudioTrack].filter(
+      (candidate): candidate is MediaStreamTrack => candidate !== null,
+    ),
+  );
   resultElement.textContent = `Cycle ${cycle}: waiting for the first decoded frame…`;
   await waitForDecodedFrame(codecLabel);
 
@@ -160,6 +179,9 @@ async function runCycle(options: ProbeCycleOptions): Promise<Record<string, unkn
   const controller = new BalancedMediaController();
   const controllerActions: BalancedControllerAction[] = [];
   const observeController = async (sample: Partial<StatisticsSummary>) => {
+    if (!adaptive) {
+      return;
+    }
     const action = controller.observe(
       { ...createEmptyStatisticsSummary(), ...sample },
       {
@@ -219,6 +241,7 @@ async function runCycle(options: ProbeCycleOptions): Promise<Record<string, unkn
     minActualBitrateBps >= minBitrateBps &&
     stableEncodeFps >= fps * 0.9 &&
     stableDecodeFps >= fps * 0.9 &&
+    (audioTrack === null || remoteAudioTrack?.readyState === "live") &&
     (presentation === null || presentation >= fps * 0.85);
   const result = {
     cycle,
@@ -236,6 +259,8 @@ async function runCycle(options: ProbeCycleOptions): Promise<Record<string, unkn
     applied: hostSession.getAppliedProducerPolicy(),
     viewerApplied: viewerSession.getAppliedProducerPolicy(),
     controllerActions,
+    displayAudio:
+      audioTrack === null ? "not requested" : (remoteAudioTrack?.readyState ?? "missing"),
   };
   await hostSession.stopProducing();
   viewerSession.stopConsuming();
@@ -258,6 +283,8 @@ async function runProbe(): Promise<Record<string, unknown>> {
   const pattern =
     patternParameter === "stress" || patternParameter === "game" ? patternParameter : "screen";
   const requestedCodec = query.get("codec");
+  const adaptive = query.get("adaptive") !== "0";
+  const audio = query.get("audio") === "1";
   const detectedVideoCodecs = detectVideoCodecCapabilities();
   const forcedCodec: VideoCodec | null =
     requestedCodec === "av1" ? "video/AV1" : requestedCodec === "h264" ? "video/H264" : null;
@@ -282,6 +309,7 @@ async function runProbe(): Promise<Record<string, unknown>> {
   }
   const codecLabel = displayVideoCodec(selectedVideoCodec);
   let remoteTrack: MediaStreamTrack | null = null;
+  let remoteAudioTrack: MediaStreamTrack | null = null;
   const hostStates: string[] = [];
   const viewerStates: string[] = [];
   const viewerSession = new MediasoupSession(viewer.request, {
@@ -289,16 +317,17 @@ async function runProbe(): Promise<Record<string, unknown>> {
     onRemoteTrack: (track) => {
       remoteTrack = track;
     },
+    onRemoteAudioTrack: (track) => {
+      remoteAudioTrack = track;
+    },
   });
   const hostSession = new MediasoupSession(host.request, {
     onState: (state) => hostStates.push(state),
     onRemoteTrack: () => undefined,
   });
-  const patternCanvas = startPatternCanvas({ fps, height, pattern, width });
-  const track = patternCanvas.canvas.captureStream(fps).getVideoTracks()[0];
-  if (!track) {
-    throw new Error("Canvas capture track unavailable");
-  }
+  const patternSource = startPatternSource({ fps, height, pattern, width });
+  const audioSource = audio ? startAudioPatternSource() : null;
+  const track = patternSource.track;
   if ("contentHint" in track) {
     track.contentHint = "motion";
   }
@@ -308,11 +337,14 @@ async function runProbe(): Promise<Record<string, unknown>> {
     for (let cycle = 1; cycle <= cycles; cycle += 1) {
       cycleResults.push(
         await runCycle({
+          adaptive,
+          audioTrack: audioSource?.track ?? null,
           codec: selectedVideoCodec,
           codecLabel,
           cycle,
           fps,
           getRemoteTrack: () => remoteTrack,
+          getRemoteAudioTrack: () => remoteAudioTrack,
           height,
           hostSession,
           maxBitrateBps,
@@ -339,9 +371,12 @@ async function runProbe(): Promise<Record<string, unknown>> {
         warmupSeconds,
         pattern,
         codec: requestedCodec ?? "auto",
+        adaptive,
+        audio,
       },
       detectedVideoCodecs,
       selectedVideoCodec,
+      patternSource: patternSource.source,
       captureSettings: track.getSettings(),
       requiredH264Level:
         selectedVideoCodec === "video/H264" ? requiredH264Level(width, height, fps) : null,
@@ -372,9 +407,11 @@ async function runProbe(): Promise<Record<string, unknown>> {
         sampleSeconds,
         pattern,
         codec: requestedCodec ?? "auto",
+        adaptive,
       },
       detectedVideoCodecs,
       selectedVideoCodec,
+      patternSource: patternSource.source,
       captureSettings: track.getSettings(),
       requiredH264Level:
         selectedVideoCodec === "video/H264" ? requiredH264Level(width, height, fps) : null,
@@ -391,7 +428,8 @@ async function runProbe(): Promise<Record<string, unknown>> {
       viewerStates,
     };
   } finally {
-    patternCanvas.stop();
+    patternSource.stop();
+    audioSource?.stop();
     track.stop();
     await hostSession.stopProducing().catch(() => undefined);
     hostSession.close();

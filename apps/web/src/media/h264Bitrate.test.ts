@@ -41,7 +41,7 @@ describe("H.264 bitrate recommendation", () => {
 describe("H.264 startup bitrate hint", () => {
   it("ramps conservatively without exceeding the configured ceiling", () => {
     expect(recommendH264StartupBitrateKbps(4_000_000)).toBe(2_800);
-    expect(recommendH264StartupBitrateKbps(100_000_000)).toBe(20_000);
+    expect(recommendH264StartupBitrateKbps(100_000_000)).toBe(50_000);
     expect(recommendH264StartupBitrateKbps(250_000)).toBeLessThanOrEqual(250);
   });
 });

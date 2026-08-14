@@ -37,7 +37,7 @@ export interface CreatedTransport {
 export interface CreatedConsumer {
   id: string;
   producerId: string;
-  kind: "video";
+  kind: "audio" | "video";
   rtpParameters: RtpParameters;
 }
 
@@ -51,10 +51,31 @@ const VIDEO_RTCP_FEEDBACK = [
 
 const ROUTER_MEDIA_CODECS = [
   {
+    kind: "audio" as const,
+    mimeType: "audio/opus",
+    clockRate: 48_000,
+    channels: 2,
+    parameters: {
+      useinbandfec: 1,
+      usedtx: 0,
+    },
+  },
+  {
     kind: "video" as const,
     mimeType: "video/AV1",
     clockRate: 90_000,
     parameters: {},
+    rtcpFeedback: VIDEO_RTCP_FEEDBACK,
+  },
+  {
+    kind: "video" as const,
+    mimeType: "video/H264",
+    clockRate: 90_000,
+    parameters: {
+      "packetization-mode": 1,
+      "profile-level-id": "42001f",
+      "level-asymmetry-allowed": 1,
+    },
     rtcpFeedback: VIDEO_RTCP_FEEDBACK,
   },
   {
@@ -162,6 +183,7 @@ export class MediaService {
   async produce(
     endpointId: string,
     transportId: string,
+    kind: "audio" | "video",
     rtpParameters: RtpParameters,
   ): Promise<Producer> {
     const transport = this.#ownedTransport(endpointId, transportId);
@@ -169,9 +191,12 @@ export class MediaService {
       throw new Error("Cannot produce on a receive transport");
     }
     const producer = await transport.produce({
-      kind: "video",
+      kind,
       rtpParameters,
-      appData: { endpointId, source: "screen" },
+      appData: {
+        endpointId,
+        source: kind === "video" ? "screen" : "display-audio",
+      },
     });
     this.#producers.set(producer.id, { endpointId, value: producer });
     producer.observer.once("close", () => {
@@ -193,8 +218,9 @@ export class MediaService {
     if (!this.#router.canConsume({ producerId, rtpCapabilities })) {
       throw new Error("CANNOT_CONSUME");
     }
+    const producerKind = this.#producers.get(producerId)?.value.kind;
     for (const resource of this.#consumers.values()) {
-      if (resource.endpointId === endpointId) {
+      if (resource.endpointId === endpointId && resource.value.kind === producerKind) {
         resource.value.close();
       }
     }
@@ -203,7 +229,10 @@ export class MediaService {
       rtpCapabilities,
       paused: true,
       enableRtx: true,
-      appData: { endpointId, source: "screen" },
+      appData: {
+        endpointId,
+        source: producerKind === "audio" ? "display-audio" : "screen",
+      },
     });
     this.#consumers.set(consumer.id, { endpointId, value: consumer });
     consumer.observer.once("close", () => {
@@ -212,7 +241,7 @@ export class MediaService {
     return {
       id: consumer.id,
       producerId: consumer.producerId,
-      kind: "video",
+      kind: consumer.kind,
       rtpParameters: consumer.rtpParameters,
     };
   }
@@ -240,10 +269,10 @@ export class MediaService {
 
   async getEndpointStats(endpointId: string): Promise<ServerMediaStatistics> {
     const producer = [...this.#producers.values()].find(
-      (resource) => resource.endpointId === endpointId,
+      (resource) => resource.endpointId === endpointId && resource.value.kind === "video",
     )?.value;
     const consumer = [...this.#consumers.values()].find(
-      (resource) => resource.endpointId === endpointId,
+      (resource) => resource.endpointId === endpointId && resource.value.kind === "video",
     )?.value;
     const transport = [...this.#transports.values()].find(
       (resource) =>

@@ -23,9 +23,7 @@ export async function switchHostProducerCodec(
   }
   const nextSettings: ProducerSettings = {
     ...input.settings,
-    preferredCodec: input.requestedCodec,
   };
-  delete nextSettings.fallbackCodec;
   await input.session.startProducing(input.capture.track, nextSettings, input.requestedCodec);
   return nextSettings;
 }

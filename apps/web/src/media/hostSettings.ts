@@ -7,6 +7,7 @@ export interface HostMediaSettings {
   fpsUserEdited: boolean;
   bitrateUserEdited: boolean;
   hdrEnabled: boolean;
+  audioEnabled: boolean;
 }
 
 const STORAGE_KEY = "conference.host-media-settings.v1";
@@ -17,6 +18,7 @@ const DEFAULT_SETTINGS: HostMediaSettings = {
   fpsUserEdited: false,
   bitrateUserEdited: false,
   hdrEnabled: true,
+  audioEnabled: true,
 };
 
 function finitePositive(value: unknown): number | null {
@@ -40,6 +42,7 @@ export function loadHostMediaSettings(
       fpsUserEdited: parsed.fpsUserEdited === true,
       bitrateUserEdited: parsed.bitrateUserEdited === true,
       hdrEnabled: parsed.hdrEnabled !== false,
+      audioEnabled: parsed.audioEnabled !== false,
     };
   } catch {
     return { ...DEFAULT_SETTINGS };

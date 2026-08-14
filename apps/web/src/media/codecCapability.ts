@@ -1,4 +1,5 @@
 import type { HdrMetadata, VideoCodec } from "@conference/protocol";
+import { h264BaselineProfileLevelId } from "./h264Capability.js";
 
 export interface VideoEncodingCapability {
   supported: boolean | null;
@@ -47,14 +48,19 @@ const UNKNOWN_CAPABILITY: VideoEncodingCapability = {
 
 const BALANCED_SCALES = [1, 1.25, 1.5, 2, 2.5, 3] as const;
 
-function encodingContentType(codec: VideoCodec): string {
+function encodingContentType(
+  codec: VideoCodec,
+  width: number,
+  height: number,
+  fps: number,
+): string {
   switch (codec) {
     case "video/AV1":
       return "video/webm;codecs=av01.0.08M.08";
     case "video/H265":
       return "video/mp4;codecs=hvc1.1.6.L123.B0";
     case "video/H264":
-      return "video/mp4;codecs=avc1.42E01F";
+      return `video/mp4;codecs=avc1.${h264BaselineProfileLevelId(width, height, fps).toUpperCase()}`;
   }
 }
 
@@ -76,7 +82,7 @@ export async function probeVideoEncodingCapability(input: {
     const result = await capabilities.encodingInfo({
       type: "webrtc",
       video: {
-        contentType: encodingContentType(input.codec),
+        contentType: encodingContentType(input.codec, input.width, input.height, input.fps),
         width: Math.round(input.width),
         height: Math.round(input.height),
         bitrate: Math.round(input.bitrateBps),
@@ -100,12 +106,16 @@ export function selectBalancedEncodingMode(
 ): BalancedEncodingPlan {
   for (const desiredFps of [true, false]) {
     const matchingFps = modes.filter((mode) => mode.desiredFps === desiredFps);
-    const hardwareSmooth = matchingFps.find(
-      (mode) => mode.capability.smooth === true && mode.capability.powerEfficient === true,
-    );
-    const selected = hardwareSmooth ?? matchingFps.find((mode) => mode.capability.smooth === true);
-    if (selected) {
-      return selected;
+    const codecs = [...new Set(matchingFps.map((mode) => mode.codec))];
+    for (const codec of codecs) {
+      const codecModes = matchingFps.filter((mode) => mode.codec === codec);
+      const hardwareSmooth = codecModes.find(
+        (mode) => mode.capability.smooth === true && mode.capability.powerEfficient === true,
+      );
+      const selected = hardwareSmooth ?? codecModes.find((mode) => mode.capability.smooth === true);
+      if (selected) {
+        return selected;
+      }
     }
   }
   return fallback;
@@ -125,9 +135,7 @@ export async function planBalancedEncoding(input: {
     ...input.compatible.filter((codec) => codec !== input.preferred),
   ];
   const uniqueCodecs = [...new Set(codecs)].filter((codec) => input.compatible.includes(codec));
-  const safeFps = Math.min(input.requestedFps, 60);
-  const frameRates =
-    input.requestedFps === safeFps ? [input.requestedFps] : [input.requestedFps, safeFps];
+  const frameRates = [input.requestedFps];
   const modes = await Promise.all(
     frameRates.flatMap((fps) =>
       uniqueCodecs.flatMap((codec) =>
@@ -154,7 +162,7 @@ export async function planBalancedEncoding(input: {
   );
   const fallback: BalancedEncodingPlan = {
     codec: uniqueCodecs[0] ?? input.preferred,
-    fps: safeFps,
+    fps: input.requestedFps,
     scaleResolutionDownBy: 1,
     capability: UNKNOWN_CAPABILITY,
   };

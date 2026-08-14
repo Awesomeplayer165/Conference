@@ -21,6 +21,14 @@ type ExtendedDisplaySettings = MediaTrackSettings & {
   screenPixelRatio?: number;
 };
 
+type AudioDisplayMediaOptions = DisplayMediaStreamOptions & {
+  monitorTypeSurfaces?: "include" | "exclude";
+  selfBrowserSurface?: "include" | "exclude";
+  surfaceSwitching?: "include" | "exclude";
+  systemAudio?: "include" | "exclude";
+  windowAudio?: "system" | "window" | "exclude";
+};
+
 function finiteNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
@@ -92,20 +100,35 @@ export async function startDisplayCapture(
     options.pixelRatioOverride,
     environment,
   );
-  const stream = await navigator.mediaDevices.getDisplayMedia({
+  const displayOptions: AudioDisplayMediaOptions = {
     video: toMediaTrackConstraints(initialConstraints),
-    audio: false,
-  });
+    audio: options.includeAudio
+      ? {
+          autoGainControl: false,
+          channelCount: { ideal: 2 },
+          echoCancellation: false,
+          noiseSuppression: false,
+          sampleRate: { ideal: 48_000 },
+        }
+      : false,
+    ...(options.includeAudio
+      ? {
+          systemAudio: "include" as const,
+          windowAudio: "system" as const,
+        }
+      : {}),
+    monitorTypeSurfaces: "include",
+    selfBrowserSurface: "exclude",
+    surfaceSwitching: "include",
+  };
+  const stream = await navigator.mediaDevices.getDisplayMedia(displayOptions);
   const [track] = stream.getVideoTracks();
   if (!track) {
     stopStream(stream);
     throw new Error("Display capture returned no video track.");
   }
 
-  for (const audioTrack of stream.getAudioTracks()) {
-    audioTrack.stop();
-    stream.removeTrack(audioTrack);
-  }
+  const [audioTrack = null] = stream.getAudioTracks();
 
   const settingsBeforeConstraints = normalizeCaptureSettings(track.getSettings());
   const capabilities = normalizeCaptureCapabilities(
@@ -127,6 +150,19 @@ export async function startDisplayCapture(
   const constraints = toMediaTrackConstraints(request);
   const warnings: string[] = [];
   let constraintsApplied = false;
+
+  if (options.includeAudio && !audioTrack) {
+    warnings.push(
+      "The selected surface or browser did not provide audio. Enable audio in the browser picker or choose a surface that supports it.",
+    );
+  }
+  if (audioTrack && "contentHint" in audioTrack) {
+    try {
+      audioTrack.contentHint = "music";
+    } catch {
+      warnings.push("The browser did not accept the high-quality system-audio hint.");
+    }
+  }
 
   if (scaleDecision.source === "window-heuristic") {
     warnings.push(
@@ -204,6 +240,7 @@ export async function startDisplayCapture(
   return {
     stream,
     track,
+    audioTrack,
     report: {
       capabilities,
       settingsBeforeConstraints,
@@ -217,6 +254,8 @@ export async function startDisplayCapture(
       requestedContentHint,
       acceptedContentHint,
       contentHintSupported,
+      audioRequested: options.includeAudio,
+      audioCaptured: audioTrack !== null,
       warnings,
     },
     stop: () => stopStream(stream),

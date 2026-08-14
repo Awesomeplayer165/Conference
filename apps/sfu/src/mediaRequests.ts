@@ -102,49 +102,64 @@ export async function handleMediaRequest(
             socket,
             message.requestId,
             "NOT_AUTHORIZED",
-            "Only the host can produce screen video",
+            "Only the host can produce shared media",
           );
           return;
         }
-        const replacedProducerId = room.producerId;
+        const kind = message.kind;
+        const replacedProducerId = kind === "video" ? room.producerId : room.audioProducerId;
         const producer = await media.produce(
           metadata.endpointId,
           message.transportId,
+          kind,
           message.rtpParameters as unknown as RtpParameters,
         );
-        room.producerId = producer.id;
-        delete room.pendingCodecSwitch;
-        const producerCodec = routedVideoCodec(
-          producer.rtpParameters.codecs.find(
-            (codec) => !codec.mimeType.toLowerCase().endsWith("/rtx"),
-          )?.mimeType,
-        );
-        if (producerCodec) {
-          room.producerCodec = producerCodec;
+        const producerCodec =
+          kind === "video"
+            ? routedVideoCodec(
+                producer.rtpParameters.codecs.find(
+                  (codec) => !codec.mimeType.toLowerCase().endsWith("/rtx"),
+                )?.mimeType,
+              )
+            : null;
+        if (kind === "video") {
+          room.producerId = producer.id;
+          delete room.pendingCodecSwitch;
+          if (producerCodec) {
+            room.producerCodec = producerCodec;
+          } else {
+            delete room.producerCodec;
+          }
+          if (message.hdrMetadata) {
+            room.producerHdrMetadata = message.hdrMetadata;
+          } else {
+            delete room.producerHdrMetadata;
+          }
         } else {
-          delete room.producerCodec;
-        }
-        if (message.hdrMetadata) {
-          room.producerHdrMetadata = message.hdrMetadata;
-        } else {
-          delete room.producerHdrMetadata;
+          room.audioProducerId = producer.id;
         }
         if (replacedProducerId && replacedProducerId !== producer.id) {
           media.closeProducer(metadata.endpointId, replacedProducerId);
         }
         producer.observer.once("close", () => {
-          if (room.producerId !== producer.id) {
+          const activeProducerId = kind === "video" ? room.producerId : room.audioProducerId;
+          if (activeProducerId !== producer.id) {
             return;
           }
-          delete room.producerId;
-          delete room.producerCodec;
-          delete room.producerHdrMetadata;
-          delete room.pendingCodecSwitch;
+          if (kind === "video") {
+            delete room.producerId;
+            delete room.producerCodec;
+            delete room.producerHdrMetadata;
+            delete room.pendingCodecSwitch;
+          } else {
+            delete room.audioProducerId;
+          }
           if (room.viewer) {
             send(room.viewer.socket, {
               type: "media.producerClosed",
               protocolVersion: PROTOCOL_VERSION,
               producerId: producer.id,
+              kind,
             });
           }
         });
@@ -159,14 +174,20 @@ export async function handleMediaRequest(
             type: "media.producerAvailable",
             protocolVersion: PROTOCOL_VERSION,
             producerId: producer.id,
+            kind,
             ...(producerCodec ? { codec: producerCodec } : {}),
-            ...(message.hdrMetadata ? { hdrMetadata: message.hdrMetadata } : {}),
+            ...(kind === "video" && message.hdrMetadata
+              ? { hdrMetadata: message.hdrMetadata }
+              : {}),
           });
         }
         break;
       }
       case "media.consume": {
-        if (metadata.role !== "viewer" || room.producerId !== message.producerId) {
+        if (
+          metadata.role !== "viewer" ||
+          (room.producerId !== message.producerId && room.audioProducerId !== message.producerId)
+        ) {
           mediaError(
             socket,
             message.requestId,
@@ -188,7 +209,7 @@ export async function handleMediaRequest(
           consumer: consumer as unknown as {
             id: string;
             producerId: string;
-            kind: "video";
+            kind: "audio" | "video";
             rtpParameters: Record<string, unknown>;
           },
         });

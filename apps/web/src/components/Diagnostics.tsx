@@ -1,6 +1,7 @@
 import type { Role, StatisticsSummary } from "@conference/protocol";
 import { formatMetric } from "@conference/telemetry/metrics";
 import type { DisplayCaptureReport } from "../capture/index.js";
+import { describeEncoderPath } from "../media/encoderPath.js";
 
 interface StatisticRow {
   label: string;
@@ -60,6 +61,18 @@ export function TelemetryOverlay({ role, summary }: { role: Role; summary: Stati
           <dt>Jitter</dt>
           <dd>{compactMetric(summary.jitterMs, " ms")}</dd>
         </div>
+        {role === "host" && (
+          <div>
+            <dt>Encoder</dt>
+            <dd>{describeEncoderPath(summary)}</dd>
+          </div>
+        )}
+        {summary.controllerState && (
+          <div className="overlay-controller-state">
+            <dt>Optimization</dt>
+            <dd>{summary.controllerState}</dd>
+          </div>
+        )}
       </dl>
     </aside>
   );
@@ -132,6 +145,14 @@ function statisticRows(summary: StatisticsSummary): StatisticRow[] {
     },
     { label: "Encoder", value: summary.encoderImplementation ?? "Unavailable" },
     { label: "Decoder", value: summary.decoderImplementation ?? "Unavailable" },
+    {
+      label: "Runtime encoder power efficient",
+      value: capability(summary.encoderPowerEfficient ?? null),
+    },
+    {
+      label: "Runtime decoder power efficient",
+      value: capability(summary.decoderPowerEfficient ?? null),
+    },
     { label: "HDR mode", value: summary.hdrMode ?? "Unavailable" },
     { label: "HDR path", value: summary.hdrStatus ?? "Unavailable" },
     { label: "HDR display", value: capability(summary.displayHdrSupported) },
@@ -272,6 +293,16 @@ export function CaptureReport({ report }: { report: DisplayCaptureReport }) {
                   report.acceptedContentHint || "automatic"
                 }`
               : "Unavailable"}
+          </dd>
+        </div>
+        <div className="statistic-row">
+          <dt>Display audio</dt>
+          <dd>
+            {report.audioCaptured
+              ? "Captured"
+              : report.audioRequested
+                ? "Requested but unavailable"
+                : "Not requested"}
           </dd>
         </div>
       </dl>

@@ -68,7 +68,7 @@ describe("balanced encoding plan", () => {
     expect(plan.scaleResolutionDownBy).toBe(1.5);
   });
 
-  it("selects a hardware codec before a software-only preferred codec", () => {
+  it("keeps a smooth preferred codec before considering a fallback codec", () => {
     const plan = selectBalancedEncodingMode(
       [
         {
@@ -93,6 +93,35 @@ describe("balanced encoding plan", () => {
         capability: capable(false, false),
       },
     );
+    expect(plan.codec).toBe("video/AV1");
+  });
+
+  it("uses the next codec when the preferred codec has no smooth mode", () => {
+    const plan = selectBalancedEncodingMode(
+      [
+        {
+          codec: "video/AV1",
+          fps: 120,
+          scaleResolutionDownBy: 1,
+          capability: capable(false, false),
+          desiredFps: true,
+        },
+        {
+          codec: "video/H264",
+          fps: 120,
+          scaleResolutionDownBy: 1,
+          capability: capable(true, true),
+          desiredFps: true,
+        },
+      ],
+      {
+        codec: "video/AV1",
+        fps: 120,
+        scaleResolutionDownBy: 1,
+        capability: capable(false, false),
+      },
+    );
     expect(plan.codec).toBe("video/H264");
+    expect(plan.fps).toBe(120);
   });
 });

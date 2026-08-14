@@ -48,6 +48,11 @@ function stringValue(record: StatsRecord | null, name: string): string | null {
   return typeof value === "string" ? value : null;
 }
 
+function booleanValue(record: StatsRecord | null, name: string): boolean | null {
+  const value = record?.[name];
+  return typeof value === "boolean" ? value : null;
+}
+
 function videoRecord(
   records: readonly StatsRecord[],
   recordsById: ReadonlyMap<string, StatsRecord>,
@@ -376,6 +381,8 @@ export class WebRtcStatsNormalizer {
       qualityLimitationReason: outbound ? stringValue(outbound, "qualityLimitationReason") : null,
       encoderImplementation: outbound ? stringValue(outbound, "encoderImplementation") : null,
       decoderImplementation: inbound ? stringValue(inbound, "decoderImplementation") : null,
+      encoderPowerEfficient: outbound ? booleanValue(outbound, "powerEfficientEncoder") : null,
+      decoderPowerEfficient: inbound ? booleanValue(inbound, "powerEfficientDecoder") : null,
       h264ProfileLevelId: profileLevelId(codec),
       mediaFlowState,
       dtlsState,

@@ -32,13 +32,21 @@ interface PatternOptions {
   width: number;
 }
 
-export interface PatternCanvas {
-  canvas: HTMLCanvasElement;
-  stop: () => void;
+interface TrackGenerator extends MediaStreamTrack {
+  writable: WritableStream<VideoFrame>;
 }
 
-export function startPatternCanvas(options: PatternOptions): PatternCanvas {
-  const { fps, height, pattern, width } = options;
+type TrackGeneratorConstructor = new (options: { kind: "video" }) => TrackGenerator;
+
+export interface PatternSource {
+  canvas: HTMLCanvasElement;
+  source: "canvas-capture" | "track-generator";
+  stop: () => void;
+  track: MediaStreamTrack;
+}
+
+function createDrawing(options: PatternOptions) {
+  const { height, pattern, width } = options;
   const canvas = document.createElement("canvas");
   canvas.width = width;
   canvas.height = height;
@@ -47,12 +55,11 @@ export function startPatternCanvas(options: PatternOptions): PatternCanvas {
     throw new Error("Canvas 2D context unavailable");
   }
   let frame = 0;
-  let animationHandle = 0;
-  const useAnimationFrame = !navigator.userAgent.toLowerCase().includes("firefox");
   const stressFrames = pattern === "stress" ? noiseFrames(width, height) : [];
   const gameTexture = pattern === "game" ? noiseFrames(width, height)[0] : null;
   context.imageSmoothingEnabled = false;
-  const animate = () => {
+
+  const draw = () => {
     frame += 1;
     if (pattern === "stress") {
       context.drawImage(
@@ -76,18 +83,16 @@ export function startPatternCanvas(options: PatternOptions): PatternCanvas {
       const offset = (frame * 3) % cell;
       context.strokeStyle = "#2b4e66";
       context.lineWidth = 1;
+      context.beginPath();
       for (let x = -cell + offset; x < width; x += cell) {
-        context.beginPath();
         context.moveTo(x, 0);
         context.lineTo(x, height);
-        context.stroke();
       }
       for (let y = -cell + offset; y < height; y += cell) {
-        context.beginPath();
         context.moveTo(0, y);
         context.lineTo(width, y);
-        context.stroke();
       }
+      context.stroke();
       for (let index = 0; index < 12; index += 1) {
         const panelWidth = width / 7;
         const panelHeight = height / 8;
@@ -101,19 +106,94 @@ export function startPatternCanvas(options: PatternOptions): PatternCanvas {
     context.fillStyle = "white";
     context.font = `${Math.max(24, Math.round(height / 12))}px system-ui`;
     context.fillText(`Media probe · ${frame}`, Math.round(width / 20), Math.round(height / 2));
-    animationHandle = useAnimationFrame
-      ? window.requestAnimationFrame(animate)
-      : window.setTimeout(animate, 1_000 / fps);
+  };
+  return { canvas, draw };
+}
+
+function startGeneratedTrack(options: PatternOptions, drawing: ReturnType<typeof createDrawing>) {
+  const Constructor = (
+    globalThis as unknown as {
+      MediaStreamTrackGenerator?: TrackGeneratorConstructor;
+    }
+  ).MediaStreamTrackGenerator;
+  if (!Constructor || typeof VideoFrame !== "function") {
+    return null;
+  }
+  const track = new Constructor({ kind: "video" });
+  const writer = track.writable.getWriter();
+  const frameDurationUs = Math.round(1_000_000 / options.fps);
+  let stopped = false;
+  let timestampUs = 0;
+  let nextFrameAt = performance.now();
+  const pump = async () => {
+    while (!stopped) {
+      drawing.draw();
+      const frame = new VideoFrame(drawing.canvas, {
+        duration: frameDurationUs,
+        timestamp: timestampUs,
+      });
+      timestampUs += frameDurationUs;
+      try {
+        await writer.write(frame);
+      } catch {
+        stopped = true;
+      } finally {
+        frame.close();
+      }
+      nextFrameAt += 1_000 / options.fps;
+      if (nextFrameAt < performance.now() - 1_000 / options.fps) {
+        nextFrameAt = performance.now();
+      }
+      const delay = nextFrameAt - performance.now();
+      if (!stopped && delay > 0) {
+        await new Promise((resolve) => window.setTimeout(resolve, delay));
+      }
+    }
+    await writer.close().catch(() => undefined);
+  };
+  void pump();
+  return {
+    source: "track-generator" as const,
+    stop: () => {
+      stopped = true;
+    },
+    track,
+  };
+}
+
+export function startPatternSource(options: PatternOptions): PatternSource {
+  const drawing = createDrawing(options);
+  const generated = startGeneratedTrack(options, drawing);
+  if (generated) {
+    return { canvas: drawing.canvas, ...generated };
+  }
+
+  let stopped = false;
+  let animationHandle = 0;
+  let nextFrameAt = performance.now();
+  const animate = () => {
+    if (stopped) {
+      return;
+    }
+    drawing.draw();
+    nextFrameAt += 1_000 / options.fps;
+    if (nextFrameAt < performance.now() - 1_000 / options.fps) {
+      nextFrameAt = performance.now();
+    }
+    animationHandle = window.setTimeout(animate, Math.max(0, nextFrameAt - performance.now()));
   };
   animate();
+  const track = drawing.canvas.captureStream(options.fps).getVideoTracks()[0];
+  if (!track) {
+    throw new Error("Canvas capture track unavailable");
+  }
   return {
-    canvas,
+    canvas: drawing.canvas,
+    source: "canvas-capture",
     stop: () => {
-      if (useAnimationFrame) {
-        window.cancelAnimationFrame(animationHandle);
-      } else {
-        window.clearTimeout(animationHandle);
-      }
+      stopped = true;
+      window.clearTimeout(animationHandle);
     },
+    track,
   };
 }

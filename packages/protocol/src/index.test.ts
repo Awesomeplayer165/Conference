@@ -94,6 +94,27 @@ describe("signaling round-trips", () => {
     });
   });
 
+  it("parses one-way display audio media messages", () => {
+    expect(
+      parseClientMessage({
+        type: "media.produce",
+        protocolVersion: PROTOCOL_VERSION,
+        requestId: "audio-produce",
+        transportId: "send-1",
+        kind: "audio",
+        rtpParameters: {},
+      }),
+    ).toMatchObject({ type: "media.produce", kind: "audio" });
+    expect(
+      parseServerMessage({
+        type: "media.producerAvailable",
+        protocolVersion: PROTOCOL_VERSION,
+        producerId: "audio-1",
+        kind: "audio",
+      }),
+    ).toMatchObject({ type: "media.producerAvailable", kind: "audio" });
+  });
+
   it("parses bounded receiver recovery messages", () => {
     expect(
       parseClientMessage({
@@ -102,7 +123,10 @@ describe("signaling round-trips", () => {
         requestId: "request-keyframe",
         consumerId: "consumer-1",
       }),
-    ).toMatchObject({ type: "media.requestConsumerKeyFrame", consumerId: "consumer-1" });
+    ).toMatchObject({
+      type: "media.requestConsumerKeyFrame",
+      consumerId: "consumer-1",
+    });
     expect(
       parseClientMessage({
         type: "media.requestCodecFallback",
@@ -111,7 +135,10 @@ describe("signaling round-trips", () => {
         consumerId: "consumer-1",
         requestedCodec: "video/H264",
       }),
-    ).toMatchObject({ type: "media.requestCodecFallback", requestedCodec: "video/H264" });
+    ).toMatchObject({
+      type: "media.requestCodecFallback",
+      requestedCodec: "video/H264",
+    });
     expect(
       parseServerMessage({
         type: "media.codecSwitchRequested",
@@ -120,7 +147,10 @@ describe("signaling round-trips", () => {
         requestedCodec: "video/H264",
         reason: "decode-failure",
       }),
-    ).toMatchObject({ type: "media.codecSwitchRequested", reason: "decode-failure" });
+    ).toMatchObject({
+      type: "media.codecSwitchRequested",
+      reason: "decode-failure",
+    });
   });
 });
 
@@ -166,7 +196,10 @@ describe("telemetry round-trips", () => {
         serverReceiveTimeMs: 1_010,
         serverSendTimeMs: 1_011,
       }),
-    ).toMatchObject({ type: "telemetry.clockProbeResult", serverSendTimeMs: 1_011 });
+    ).toMatchObject({
+      type: "telemetry.clockProbeResult",
+      serverSendTimeMs: 1_011,
+    });
   });
 });
 

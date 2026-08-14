@@ -103,3 +103,58 @@ describe("receiver recovery signaling", () => {
     expect(viewer.messages[0]?.type).toBe("media.ack");
   });
 });
+
+describe("display audio signaling", () => {
+  it("publishes a separate audio producer without replacing screen video", async () => {
+    const host = socketCollector();
+    const viewer = socketCollector();
+    rooms.set("room-audio", {
+      id: "room-audio",
+      producerId: "video-1",
+      host: { endpointId: "host-audio", role: "host", socket: host.socket },
+      viewer: { endpointId: "viewer-audio", role: "viewer", socket: viewer.socket },
+    });
+    connectionMetadata.set(connectionKey(host.socket), {
+      roomId: "room-audio",
+      role: "host",
+      endpointId: "host-audio",
+    });
+    const producedKinds: Array<"audio" | "video"> = [];
+    const media = {
+      produce: (_endpointId: string, _transportId: string, kind: "audio" | "video") => {
+        producedKinds.push(kind);
+        return Promise.resolve({
+          id: "audio-1",
+          rtpParameters: { codecs: [{ mimeType: "audio/opus" }] },
+          observer: { once: () => undefined },
+        });
+      },
+    } as unknown as MediaService;
+
+    await handleMediaRequest(
+      host.socket,
+      {
+        type: "media.produce",
+        protocolVersion: PROTOCOL_VERSION,
+        requestId: "produce-audio",
+        transportId: "send-1",
+        kind: "audio",
+        rtpParameters: {},
+      },
+      media,
+    );
+
+    expect(producedKinds).toEqual(["audio"]);
+    expect(rooms.get("room-audio")).toMatchObject({
+      producerId: "video-1",
+      audioProducerId: "audio-1",
+    });
+    expect(viewer.messages).toContainEqual(
+      expect.objectContaining({
+        type: "media.producerAvailable",
+        producerId: "audio-1",
+        kind: "audio",
+      }),
+    );
+  });
+});

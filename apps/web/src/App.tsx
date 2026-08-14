@@ -45,6 +45,7 @@ export function App() {
   const [captureActive, setCaptureActive] = useState(false);
   const [mediaStatus, setMediaStatus] = useState("Media idle");
   const [remoteTrack, setRemoteTrack] = useState<MediaStreamTrack | null>(null);
+  const [remoteAudioTrack, setRemoteAudioTrack] = useState<MediaStreamTrack | null>(null);
   const [sourceHdrMetadata, setSourceHdrMetadata] = useState<HdrMetadata | null>(null);
   const [decodedHdrMetadata, setDecodedHdrMetadata] = useState<HdrMetadata | null>(null);
   const [captureMessage, setCaptureMessage] = useState(
@@ -66,6 +67,7 @@ export function App() {
   const pendingMediaRef = useRef(new Map<string, PendingMediaRequest>());
   const clockEstimatorRef = useRef(new ClockOffsetEstimator());
   const localStatisticsRef = useRef(localStatistics);
+  const peerStatisticsRef = useRef(peerStatistics);
   const sampleObserverRef = useRef<((summary: StatisticsSummary) => void) | null>(null);
   const endpointId = useMemo(() => crypto.randomUUID(), []);
   const localVideoCodecs = useMemo(detectVideoCodecCapabilities, []);
@@ -78,6 +80,7 @@ export function App() {
   });
 
   localStatisticsRef.current = localStatistics;
+  peerStatisticsRef.current = peerStatistics;
   selectedVideoCodecRef.current = selectedVideoCodec;
   const { observeMediaSample, resetMediaAdaptation } = useMediaAdaptation({
     captureRef,
@@ -85,6 +88,7 @@ export function App() {
     hostSettings,
     localStatisticsRef,
     mediasoupRef,
+    peerStatisticsRef,
     producerSettingsRef,
     remoteVideoRef,
     role,
@@ -117,6 +121,7 @@ export function App() {
     captureActive,
     captureRef,
     localStatisticsRef,
+    remoteAudioTrack,
     remoteTrack,
     remoteVideoRef,
     role,
@@ -151,7 +156,9 @@ export function App() {
         maxBitrateBps: hostSettings.maxBitrateBps,
         contentMode: "auto",
         ...(currentProducerSettings.scaleResolutionDownBy
-          ? { scaleResolutionDownBy: currentProducerSettings.scaleResolutionDownBy }
+          ? {
+              scaleResolutionDownBy: currentProducerSettings.scaleResolutionDownBy,
+            }
           : {}),
         ...(currentProducerSettings.hdrMetadata
           ? { hdrMetadata: currentProducerSettings.hdrMetadata }
@@ -241,6 +248,7 @@ export function App() {
             });
           }
         },
+        onRemoteAudioTrack: setRemoteAudioTrack,
         onRemoteHdrMetadata: setSourceHdrMetadata,
         onTransportState: (direction, transportState) => {
           setLocalStatistics((current) => {
@@ -355,6 +363,7 @@ export function App() {
     mediasoupRef.current?.close();
     mediasoupRef.current = null;
     setRemoteTrack(null);
+    setRemoteAudioTrack(null);
     setSourceHdrMetadata(null);
     setDecodedHdrMetadata(null);
     setMediaStatus("Media idle");
@@ -402,6 +411,7 @@ export function App() {
       peerStatistics={peerStatistics}
       regenerateSessionCode={regenerateSessionCode}
       remoteActive={remoteTrack !== null}
+      remoteAudioActive={remoteAudioTrack !== null}
       remoteVideoRef={remoteVideoRef}
       role={role}
       roomId={roomId}

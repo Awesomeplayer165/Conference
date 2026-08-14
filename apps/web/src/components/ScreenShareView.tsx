@@ -37,6 +37,7 @@ export interface ScreenShareViewProps {
   peerStatistics: StatisticsSummary;
   regenerateSessionCode: () => void;
   remoteActive: boolean;
+  remoteAudioActive: boolean;
   remoteVideoRef: RefObject<HTMLVideoElement | null>;
   role: Role;
   roomId: string;
@@ -207,6 +208,7 @@ function SessionWorkspace(props: ScreenShareViewProps) {
     localStatistics,
     peerPresent,
     remoteActive,
+    remoteAudioActive,
     remoteVideoRef,
     role,
     roomId,
@@ -278,7 +280,8 @@ function SessionWorkspace(props: ScreenShareViewProps) {
               className={`${remoteActive ? "capture-video" : "capture-video hidden"} ${
                 hdrOutputEnabled ? "hdr-output" : "sdr-output"
               }`}
-              muted
+              muted={false}
+              onClick={(event) => void event.currentTarget.play()}
               onLoadedMetadata={updateRemoteGeometry}
               playsInline
               ref={remoteVideoRef}
@@ -308,6 +311,9 @@ function SessionWorkspace(props: ScreenShareViewProps) {
           )}
           {debugOverlayEnabled && videoActive && (
             <TelemetryOverlay role={role} summary={localStatistics} />
+          )}
+          {role === "viewer" && remoteAudioActive && (
+            <span className="audio-status">Display audio</span>
           )}
         </div>
       </section>

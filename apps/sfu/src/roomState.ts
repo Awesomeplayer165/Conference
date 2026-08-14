@@ -23,6 +23,7 @@ export interface RoomState {
   host?: PeerConnection;
   viewer?: PeerConnection;
   producerId?: string;
+  audioProducerId?: string;
   producerCodec?: VideoCodec;
   producerHdrMetadata?: HdrMetadata;
   pendingCodecSwitch?: VideoCodec;
@@ -165,8 +166,17 @@ export function handleJoin(
       type: "media.producerAvailable",
       protocolVersion: PROTOCOL_VERSION,
       producerId: room.producerId,
+      kind: "video",
       ...(room.producerCodec ? { codec: room.producerCodec } : {}),
       ...(room.producerHdrMetadata ? { hdrMetadata: room.producerHdrMetadata } : {}),
+    });
+  }
+  if (message.role === "viewer" && room.audioProducerId) {
+    send(socket, {
+      type: "media.producerAvailable",
+      protocolVersion: PROTOCOL_VERSION,
+      producerId: room.audioProducerId,
+      kind: "audio",
     });
   }
 }
@@ -188,8 +198,10 @@ export function handleLeave(
   }
 
   const closedProducerId = metadata.role === "host" ? room.producerId : undefined;
+  const closedAudioProducerId = metadata.role === "host" ? room.audioProducerId : undefined;
   if (metadata.role === "host") {
     delete room.producerId;
+    delete room.audioProducerId;
     delete room.producerCodec;
     delete room.producerHdrMetadata;
     delete room.pendingCodecSwitch;
@@ -211,6 +223,15 @@ export function handleLeave(
         type: "media.producerClosed",
         protocolVersion: PROTOCOL_VERSION,
         producerId: closedProducerId,
+        kind: "video",
+      });
+    }
+    if (closedAudioProducerId) {
+      send(other.socket, {
+        type: "media.producerClosed",
+        protocolVersion: PROTOCOL_VERSION,
+        producerId: closedAudioProducerId,
+        kind: "audio",
       });
     }
   }

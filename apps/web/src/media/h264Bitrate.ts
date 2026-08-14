@@ -10,7 +10,7 @@ const MINIMUM_BITRATE_BPS = 2_000_000;
 const MAXIMUM_BITRATE_BPS = 100_000_000;
 const ROUNDING_STEP_BPS = 250_000;
 const STARTUP_RATIO = 0.7;
-const MAXIMUM_STARTUP_BITRATE_BPS = 20_000_000;
+const MAXIMUM_STARTUP_BITRATE_BPS = 50_000_000;
 
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.min(maximum, Math.max(minimum, value));

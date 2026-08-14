@@ -1,12 +1,31 @@
 import { describe, expect, it } from "bun:test";
 import {
+  createProducerEncoding,
   createProducerSettings,
   degradationPreferenceForContent,
   selectProducerMaxFps,
 } from "./producerPolicy.js";
 
+describe("producer encoding", () => {
+  it("does not request a scalability mode that can disqualify a hardware encoder", () => {
+    expect(
+      createProducerEncoding({
+        maxBitrateBps: 80_000_000,
+        maxFps: 120,
+        scaleResolutionDownBy: 1.25,
+      }),
+    ).toEqual({
+      maxBitrate: 80_000_000,
+      maxFramerate: 120,
+      networkPriority: "high",
+      priority: "high",
+      scaleResolutionDownBy: 1.25,
+    });
+  });
+});
+
 describe("producer frame-rate policy", () => {
-  it("clamps a manual request to the frame rate actually applied to the track", () => {
+  it("keeps a manual request above a conservative track report", () => {
     expect(
       selectProducerMaxFps({
         requestedFps: 120,
@@ -14,10 +33,10 @@ describe("producer frame-rate policy", () => {
         reportedCapabilityMax: 30,
         trackFrameRate: 60,
       }),
-    ).toBe(60);
+    ).toBe(120);
   });
 
-  it("uses the configured track rate before a capability maximum in automatic mode", () => {
+  it("keeps the configured ceiling in automatic mode so capture can recover", () => {
     expect(
       selectProducerMaxFps({
         requestedFps: 120,
@@ -25,7 +44,7 @@ describe("producer frame-rate policy", () => {
         reportedCapabilityMax: 120,
         trackFrameRate: 60,
       }),
-    ).toBe(60);
+    ).toBe(120);
   });
 });
 

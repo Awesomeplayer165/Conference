@@ -1,15 +1,19 @@
+import type { StatisticsSummary } from "@conference/protocol";
 import type { Dispatch, SetStateAction } from "react";
+import { describeEncoderPath } from "../media/encoderPath.js";
 import type { HostMediaSettings } from "../media/hostSettings.js";
 
 interface QualityPanelProps {
   captureActive: boolean;
   hostSettings: HostMediaSettings;
+  localStatistics: StatisticsSummary;
   setAutomaticBitrate: (automatic: boolean) => void;
   setHostSettings: Dispatch<SetStateAction<HostMediaSettings>>;
 }
 
 export function QualityPanel(props: QualityPanelProps) {
-  const { captureActive, hostSettings, setAutomaticBitrate, setHostSettings } = props;
+  const { captureActive, hostSettings, localStatistics, setAutomaticBitrate, setHostSettings } =
+    props;
   return (
     <section className="quality-panel" aria-labelledby="quality-heading">
       <div className="quality-heading">
@@ -72,25 +76,45 @@ export function QualityPanel(props: QualityPanelProps) {
           </div>
         </label>
         <div className="quality-mode">
-          <span>Video optimization</span>
-          <strong>Balanced</strong>
-          <small>Protects smooth motion, then restores detail as headroom returns.</small>
+          <span>Live optimization</span>
+          <strong>{localStatistics.controllerState ?? "Balanced"}</strong>
+          <small>{describeEncoderPath(localStatistics)}</small>
         </div>
         <label className="checkbox-label quality-checkbox">
           <input
             checked={hostSettings.hdrEnabled}
             disabled={captureActive}
             onChange={(event) =>
-              setHostSettings((current) => ({ ...current, hdrEnabled: event.target.checked }))
+              setHostSettings((current) => ({
+                ...current,
+                hdrEnabled: event.target.checked,
+              }))
             }
             type="checkbox"
           />
           HDR if supported
         </label>
+        <label className="checkbox-label quality-checkbox">
+          <input
+            checked={hostSettings.audioEnabled}
+            disabled={captureActive}
+            onChange={(event) =>
+              setHostSettings((current) => ({
+                ...current,
+                audioEnabled: event.target.checked,
+              }))
+            }
+            type="checkbox"
+          />
+          Share system audio if available
+        </label>
       </div>
       <p className="control-note">
         Automatic adapts the quality ceiling to the live path. Resolution yields before frame
-        cadence, then recovers gradually. HDR is preserved only when the complete path supports it.
+        cadence, then recovers gradually. The bitrate is a ceiling: static scenes naturally use less
+        data, while motion can use the available headroom. HDR is preserved only when the complete
+        path supports it. Audio is shared only when the selected surface and browser picker provide
+        an audio track.
       </p>
     </section>
   );

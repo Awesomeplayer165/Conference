@@ -49,6 +49,8 @@ export interface DisplayCaptureReport {
   requestedContentHint: string;
   acceptedContentHint: string | null;
   contentHintSupported: boolean;
+  audioRequested: boolean;
+  audioCaptured: boolean;
   warnings: readonly string[];
 }
 
@@ -57,11 +59,13 @@ export interface StartDisplayCaptureOptions {
   contentMode: ContentMode;
   requestNativePixels: boolean;
   pixelRatioOverride: number | null;
+  includeAudio: boolean;
 }
 
 export interface DisplayCaptureSession {
   stream: MediaStream;
   track: MediaStreamTrack;
+  audioTrack: MediaStreamTrack | null;
   report: DisplayCaptureReport;
   stop: () => void;
 }

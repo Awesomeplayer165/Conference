@@ -33,8 +33,8 @@ describe("host codec switching", () => {
       settings,
     });
 
-    expect(next?.preferredCodec).toBe("video/H264");
-    expect(next?.fallbackCodec).toBeUndefined();
+    expect(next?.preferredCodec).toBe("video/AV1");
+    expect(next?.fallbackCodec).toBe("video/H264");
     expect(calls).toEqual([[track, next, "video/H264"]]);
   });
 

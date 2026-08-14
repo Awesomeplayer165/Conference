@@ -16,6 +16,7 @@ interface MediaAdaptationOptions {
   hostSettings: HostMediaSettings;
   localStatisticsRef: React.RefObject<StatisticsSummary>;
   mediasoupRef: React.RefObject<MediasoupSession | null>;
+  peerStatisticsRef: React.RefObject<StatisticsSummary>;
   producerSettingsRef: React.RefObject<ProducerSettings | null>;
   remoteVideoRef: React.RefObject<HTMLVideoElement | null>;
   role: "host" | "viewer";
@@ -64,10 +65,7 @@ export function useMediaAdaptation(options: MediaAdaptationOptions) {
           await session.updateProducerSettings(next);
           setControllerState(action.state, { targetBitrateBps: action.maxBitrateBps });
         } else if (action.type === "codec") {
-          const next = { ...settings, preferredCodec: action.codec };
-          delete next.fallbackCodec;
-          options.producerSettingsRef.current = next;
-          await session.startProducing(capture.track, next, action.codec);
+          await session.startProducing(capture.track, settings, action.codec);
           options.setSelectedVideoCodec(action.codec);
           setControllerState(action.state, { codec: displayVideoCodec(action.codec) });
         } else {
@@ -144,13 +142,20 @@ export function useMediaAdaptation(options: MediaAdaptationOptions) {
       if (!settings) {
         return;
       }
-      const action = controllerRef.current.observe(summary, {
-        automaticBitrate: !options.hostSettings.bitrateUserEdited,
-        maxBitrateBps: settings.maxBitrateBps,
-        maxFps: settings.maxFps,
-        scaleResolutionDownBy: settings.scaleResolutionDownBy ?? 1,
-        ...(settings.fallbackCodec ? { fallbackCodec: settings.fallbackCodec } : {}),
-      });
+      const action = controllerRef.current.observe(
+        summary,
+        {
+          activeCodec: options.selectedVideoCodec,
+          automaticBitrate: !options.hostSettings.bitrateUserEdited,
+          bitrateCeilingBps: 100_000_000,
+          maxBitrateBps: settings.maxBitrateBps,
+          maxFps: settings.maxFps,
+          scaleResolutionDownBy: settings.scaleResolutionDownBy ?? 1,
+          ...(settings.preferredCodec ? { preferredCodec: settings.preferredCodec } : {}),
+          ...(settings.fallbackCodec ? { fallbackCodec: settings.fallbackCodec } : {}),
+        },
+        options.peerStatisticsRef.current,
+      );
       if (action.type === "none") {
         if (summary.controllerState !== action.state) {
           setControllerState(action.state);
@@ -164,6 +169,7 @@ export function useMediaAdaptation(options: MediaAdaptationOptions) {
       options.compatibleVideoCodecs,
       options.hostSettings.bitrateUserEdited,
       options.mediasoupRef,
+      options.peerStatisticsRef,
       options.producerSettingsRef,
       options.remoteVideoRef,
       options.role,

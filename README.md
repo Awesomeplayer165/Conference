@@ -2,11 +2,11 @@
 
 A private, one-host, one-viewer screen-sharing service. The host creates a
 short session code and sends one screen stream through mediasoup to one viewer,
-with no simulcast, transcoding, audio, or data channels. Capture starts at the
-selected surface's native geometry; encoded resolution can decrease to protect
-cadence under pressure. The
-end-to-end browser/SFU capability intersection prefers AV1 and falls back to
-H.264 packetization mode 1.
+with no simulcast, transcoding, or data channels. Optional display/system audio
+is sent as a separate Opus stream on the same WebRTC transport. Capture starts
+at the selected surface's native geometry; encoded resolution can decrease to
+protect cadence under pressure. The end-to-end browser/SFU capability
+intersection prefers AV1 and falls back to H.264 packetization mode 1.
 
 ## Prerequisites
 
@@ -16,11 +16,11 @@ H.264 packetization mode 1.
 - macOS is required for real Safari testing; Playwright WebKit is not a Safari
   substitute
 
-The project is screen-video only. Bun runs the workspace, Hono provides HTTP
-and WebSocket signaling, and mediasoup forwards RTP. Automatic capture uses the
-selected surface's configured rate; a manual FPS value is sent as an ideal
-request even when a browser reports a conservative capability maximum. The FPS and bitrate
-ceilings are persisted locally; the automatic video recommendation uses
+The project is one-way screen media only. Bun runs the workspace, Hono provides
+HTTP and WebSocket signaling, and mediasoup forwards RTP. Capture and sender
+constraints both retain the configured FPS ceiling even when the browser
+reports a conservative capability maximum. The FPS and bitrate ceilings are
+persisted locally; the automatic video recommendation uses
 `width × height × FPS × 0.1`, rounded to 250 kbps and capped at 100 Mbps.
 
 ## Local development
@@ -156,7 +156,8 @@ bun run build
 ```
 
 Debug settings are available to both roles. A configurable video overlay shows
-the active codec, resolution, FPS, bitrate, latency, and jitter. One-second
+the active codec, resolution, FPS, bitrate, latency, jitter, encoder path, and
+current optimization decision. One-second
 samples keep
 source, encoded, decoded, and CSS render geometry separate and distinguish
 capture, encode, decode, and presentation FPS. They also expose applied encoder
@@ -195,7 +196,12 @@ settle, and `minBitrateMbps` sets an optional sustained-throughput gate:
 `pattern=screen` is a moving-workspace check, `pattern=game` is the sustained
 high-motion/high-bitrate gate, and `pattern=stress` is intentionally
 incompressible. The stress pattern is a rate-control limit test and is not
-expected to preserve 60 FPS at every encoder target.
+expected to preserve 60 FPS at every encoder target. Add `adaptive=0` to measure
+the raw requested sender policy without controller changes. Chromium uses a
+`MediaStreamTrackGenerator` clock for the harness when available so a background
+tab's animation scheduler does not masquerade as an encoder FPS limit.
+Add `audio=1` to create and verify a synthetic Opus producer/consumer alongside
+the video without opening a capture picker.
 
 The configured bitrate is an encoder ceiling. RTP/UDP/IP overhead and
 retransmissions can make total link traffic higher, while WebRTC congestion
@@ -208,18 +214,29 @@ ramp-up where the browser honors it, and the applied
 sender parameters are read back into the panel rather than assumed.
 
 The single **Balanced** mode sets the track's motion hint and always asks the
-sender to maintain frame rate under pressure. Two consecutive cadence-pressure
-samples cause a resolution adjustment sized to the measured FPS deficit. Stable
-headroom expands the automatic bitrate ceiling up to 100 Mbps before detail is
-restored one scale step at a time; cooldowns and a 20-sample recovery window
-prevent oscillation. A connected but stalled sender is recreated, and a viewer
-that receives RTP without complete frames keeps its consumer and requests one
-clean keyframe. Startup leaves receive buffering under browser control so large
-keyframes can complete. A 40 ms target is applied only after decoded frames are
-stable. If a compatible Chromium pair continues receiving undecodable AV1, the
-viewer asks the active host producer to switch atomically to H.264. High-priority
-RTP allocation and a conservative quality-floor codec hint are applied where
-supported without overriding congestion control.
+sender to maintain frame rate under pressure. It does not reduce the configured
+FPS. Sustained cadence pressure reduces resolution across fine 100%, 90.9%,
+83.3%, 75.2%, 66.7%, 59.9%, and 50% steps before considering a codec fallback;
+severe encoder pressure can skip directly to the scale needed to recover
+cadence. Stable samples restore one detail step at a time. Low-motion samples
+with a low QP or very low bitrate also count as healthy, so standing still
+cannot strand the stream at a reduced resolution. The automatic bitrate
+controller uses the narrowest
+reported host/SFU/viewer path estimate, keeps a pacing margin, and moves its
+ceiling in both directions up to 100 Mbps. A connected but stalled sender is
+recreated, and a viewer that receives RTP without complete frames keeps its
+consumer and requests one clean keyframe. Startup leaves receive buffering
+under browser control so large keyframes can complete. A 40 ms target is
+applied only after decoded frames are stable. If a compatible Chromium pair
+continues receiving undecodable AV1, the viewer asks the active host producer
+to switch atomically to H.264. A host-side
+compute fallback is also temporary: after a stable recovery window it probes the
+preferred codec again with bounded retry backoff. High-priority RTP allocation,
+a motion-oriented bitrate floor hint, and a bounded startup hint are applied
+where Chromium supports them without overriding congestion control. Standard
+WebRTC exposes a maximum bitrate, not a true constant-bitrate switch, so the app
+does not fabricate traffic for static frames or claim CBR when the browser does
+not provide it.
 
 **HDR if supported** inspects color-transfer metadata exposed by capture, carries
 it to the viewer, and verifies decoded `VideoFrame` metadata where available.
@@ -234,9 +251,42 @@ The client still reports H.265 send/receive capability when a browser exposes
 it, but the service will not select it or claim it works end to end. The active
 preference is therefore AV1, then H.264. At the requested geometry and FPS, the
 startup planner probes AV1 and H.264 across resolution scales. It keeps the
-requested cadence when a smooth, power-efficient mode exists, prefers
-hardware-backed operation over a software-only preferred codec, and uses a
-conservative 60 FPS mode when the API cannot verify a higher rate. If runtime
-telemetry finds software AV1 unable to hold cadence, the host switches
-atomically to the compatible fallback codec. H.265 can be inserted between them
-only after the SFU can create and route an H.265 producer/consumer.
+requested cadence even when Media Capabilities cannot verify a higher rate and
+exhausts smooth modes for AV1 before selecting H.264. If runtime telemetry finds
+software AV1 unable to hold cadence, resolution reaches 50% before the host
+switches atomically to the compatible fallback codec. A confirmed hardware AV1
+path is not replaced with software H.264 merely because capture cadence is low.
+H.265 can be inserted between them only after the SFU can create and route an
+H.265 producer/consumer.
+
+### Chromium hardware encoding
+
+The SFU advertises H.264 Baseline (`42001f`) before Constrained Baseline
+(`42e01f`) because desktop Chromium's platform encoder commonly exposes the
+former while OpenH264 supplies the software fallback. Both profiles remain
+available for cross-browser compatibility. The app requests one encoding with
+no explicit SVC mode, which avoids disqualifying an accelerator that does not
+advertise the requested scalability mode.
+
+The browser retains final control over encoder selection. The host UI and
+telemetry report the actual `encoderImplementation`: `libaom` and `OpenH264`
+are software paths, while Chromium's external/platform encoder indicates the
+accelerated path. A Media Capabilities `powerEfficient` result is shown as
+supporting evidence, not substituted for the actual runtime implementation.
+
+Current Chromium enables WebRTC AV1 hardware encoding by default on non-Windows
+platforms when the platform accelerator exposes it, but its upstream Windows
+feature remains disabled by default. A Windows GPU advertising AV1 elsewhere
+therefore does not guarantee that a normal Chrome WebRTC session will use it;
+the application cannot override that browser feature from JavaScript. H.264
+Baseline is the dependable accelerated fallback for that case.
+
+### Display audio
+
+The host can request display audio before opening the browser picker. The app
+asks for system/window audio without echo cancellation, noise suppression, or
+automatic gain control, then forwards an available stereo 48 kHz track as Opus
+with DTX disabled. Audio remains optional because browsers may return video only
+and the user must explicitly allow audio in the picker. The viewer combines the
+audio and video tracks for synchronized playback; if autoplay policy blocks
+sound, clicking the video resumes it.
