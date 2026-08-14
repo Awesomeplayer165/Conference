@@ -247,6 +247,19 @@ export const ClientMessageSchema = z.discriminatedUnion("type", [
     consumerId: z.string().min(1),
   }),
   z.object({
+    type: z.literal("media.requestConsumerKeyFrame"),
+    protocolVersion,
+    requestId,
+    consumerId: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal("media.requestCodecFallback"),
+    protocolVersion,
+    requestId,
+    consumerId: z.string().min(1),
+    requestedCodec: VideoCodecSchema,
+  }),
+  z.object({
     type: z.literal("media.closeProducer"),
     protocolVersion,
     requestId,
@@ -378,6 +391,13 @@ export const ServerMessageSchema = z.discriminatedUnion("type", [
     type: z.literal("media.producerClosed"),
     protocolVersion,
     producerId: z.string().min(1),
+  }),
+  z.object({
+    type: z.literal("media.codecSwitchRequested"),
+    protocolVersion,
+    producerId: z.string().min(1),
+    requestedCodec: VideoCodecSchema,
+    reason: z.literal("decode-failure"),
   }),
 ]);
 export type ServerMessage = z.infer<typeof ServerMessageSchema>;

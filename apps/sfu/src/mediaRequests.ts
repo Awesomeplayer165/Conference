@@ -3,7 +3,7 @@ import type { WSContext } from "hono/ws";
 import type { DtlsParameters, RtpCapabilities, RtpParameters } from "mediasoup/types";
 import type { MediaService } from "./mediaService.js";
 import { connectionKey, connectionMetadata, rooms, send } from "./roomState.js";
-import { routedVideoCodec } from "./videoCodecs.js";
+import { compatibleVideoCodecs, routedVideoCodec } from "./videoCodecs.js";
 
 function mediaError(
   socket: WSContext,
@@ -113,6 +113,7 @@ export async function handleMediaRequest(
           message.rtpParameters as unknown as RtpParameters,
         );
         room.producerId = producer.id;
+        delete room.pendingCodecSwitch;
         const producerCodec = routedVideoCodec(
           producer.rtpParameters.codecs.find(
             (codec) => !codec.mimeType.toLowerCase().endsWith("/rtx"),
@@ -138,6 +139,7 @@ export async function handleMediaRequest(
           delete room.producerId;
           delete room.producerCodec;
           delete room.producerHdrMetadata;
+          delete room.pendingCodecSwitch;
           if (room.viewer) {
             send(room.viewer.socket, {
               type: "media.producerClosed",
@@ -200,6 +202,61 @@ export async function handleMediaRequest(
           requestId: message.requestId,
         });
         break;
+      case "media.requestConsumerKeyFrame":
+        if (metadata.role !== "viewer") {
+          mediaError(
+            socket,
+            message.requestId,
+            "NOT_AUTHORIZED",
+            "Only the viewer can request a receive keyframe",
+          );
+          return;
+        }
+        await media.requestConsumerKeyFrame(metadata.endpointId, message.consumerId);
+        send(socket, {
+          type: "media.ack",
+          protocolVersion: PROTOCOL_VERSION,
+          requestId: message.requestId,
+        });
+        break;
+      case "media.requestCodecFallback": {
+        const producerId = media.consumerProducerId(metadata.endpointId, message.consumerId);
+        const codecs = compatibleVideoCodecs(room.host?.videoCodecs, room.viewer?.videoCodecs);
+        if (
+          metadata.role !== "viewer" ||
+          producerId === null ||
+          producerId !== room.producerId ||
+          !codecs.includes(message.requestedCodec) ||
+          !room.host
+        ) {
+          mediaError(
+            socket,
+            message.requestId,
+            "NOT_AUTHORIZED",
+            "The requested codec fallback is not available for this stream",
+          );
+          return;
+        }
+        if (
+          room.producerCodec !== message.requestedCodec &&
+          room.pendingCodecSwitch !== message.requestedCodec
+        ) {
+          room.pendingCodecSwitch = message.requestedCodec;
+          send(room.host.socket, {
+            type: "media.codecSwitchRequested",
+            protocolVersion: PROTOCOL_VERSION,
+            producerId,
+            requestedCodec: message.requestedCodec,
+            reason: "decode-failure",
+          });
+        }
+        send(socket, {
+          type: "media.ack",
+          protocolVersion: PROTOCOL_VERSION,
+          requestId: message.requestId,
+        });
+        break;
+      }
       case "media.closeProducer":
         if (metadata.role !== "host") {
           mediaError(

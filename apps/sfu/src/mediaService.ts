@@ -223,7 +223,19 @@ export class MediaService {
       throw new Error("Consumer not found");
     }
     await resource.value.resume();
+  }
+
+  async requestConsumerKeyFrame(endpointId: string, consumerId: string): Promise<void> {
+    const resource = this.#consumers.get(consumerId);
+    if (!resource || resource.endpointId !== endpointId) {
+      throw new Error("Consumer not found");
+    }
     await resource.value.requestKeyFrame();
+  }
+
+  consumerProducerId(endpointId: string, consumerId: string): string | null {
+    const resource = this.#consumers.get(consumerId);
+    return resource?.endpointId === endpointId ? resource.value.producerId : null;
   }
 
   async getEndpointStats(endpointId: string): Promise<ServerMediaStatistics> {
@@ -271,9 +283,13 @@ export class MediaService {
     const transportBitrate = producer
       ? transportStats?.rtpRecvBitrate
       : transportStats?.rtpSendBitrate;
-    const availableBitrate = producer
+    const reportedAvailableBitrate = producer
       ? transportStats?.availableIncomingBitrate
       : transportStats?.availableOutgoingBitrate;
+    const availableBitrate =
+      typeof reportedAvailableBitrate === "number" && reportedAvailableBitrate > 0
+        ? reportedAvailableBitrate
+        : null;
     return ServerMediaStatisticsSchema.parse({
       bitrateBps: stats?.bitrate ?? transportBitrate ?? null,
       availableBitrateBps: availableBitrate ?? null,

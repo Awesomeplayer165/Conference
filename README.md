@@ -213,11 +213,13 @@ samples cause a resolution adjustment sized to the measured FPS deficit. Stable
 headroom expands the automatic bitrate ceiling up to 100 Mbps before detail is
 restored one scale step at a time; cooldowns and a 20-sample recovery window
 prevent oscillation. A connected but stalled sender is recreated, and a viewer
-that receives RTP without complete frames reattaches its consumer. High-priority
+that receives RTP without complete frames keeps its consumer and requests one
+clean keyframe. Startup leaves receive buffering under browser control so large
+keyframes can complete. A 40 ms target is applied only after decoded frames are
+stable. If a compatible Chromium pair continues receiving undecodable AV1, the
+viewer asks the active host producer to switch atomically to H.264. High-priority
 RTP allocation and a conservative quality-floor codec hint are applied where
-supported without overriding congestion control. The viewer requests a 40 ms
-jitter-buffer target where the browser implements it; measured jitter-buffer
-delay remains visible because the browser can clamp that request upward.
+supported without overriding congestion control.
 
 **HDR if supported** inspects color-transfer metadata exposed by capture, carries
 it to the viewer, and verifies decoded `VideoFrame` metadata where available.

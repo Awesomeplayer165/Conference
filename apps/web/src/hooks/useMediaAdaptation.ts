@@ -7,16 +7,19 @@ import {
 } from "../media/balancedController.js";
 import type { HostMediaSettings } from "../media/hostSettings.js";
 import type { MediasoupSession, ProducerSettings } from "../media/MediasoupSession.js";
+import { ReceiverRecoveryController } from "../media/receiverRecovery.js";
 import { displayVideoCodec } from "../media/videoCodecs.js";
 
 interface MediaAdaptationOptions {
   captureRef: React.RefObject<DisplayCaptureSession | null>;
+  compatibleVideoCodecs: VideoCodec[];
   hostSettings: HostMediaSettings;
   localStatisticsRef: React.RefObject<StatisticsSummary>;
   mediasoupRef: React.RefObject<MediasoupSession | null>;
   producerSettingsRef: React.RefObject<ProducerSettings | null>;
   remoteVideoRef: React.RefObject<HTMLVideoElement | null>;
   role: "host" | "viewer";
+  selectedVideoCodec: VideoCodec | null;
   selectedVideoCodecRef: React.RefObject<VideoCodec | null>;
   setLocalStatistics: React.Dispatch<React.SetStateAction<StatisticsSummary>>;
   setMediaStatus: React.Dispatch<React.SetStateAction<string>>;
@@ -26,7 +29,7 @@ interface MediaAdaptationOptions {
 export function useMediaAdaptation(options: MediaAdaptationOptions) {
   const controllerRef = useRef(new BalancedMediaController());
   const operationRef = useRef(false);
-  const receiverRef = useRef({ stalledSamples: 0, cooldownSamples: 0 });
+  const receiverRef = useRef(new ReceiverRecoveryController());
 
   const setControllerState = useCallback(
     (state: string, extra: Partial<StatisticsSummary> = {}): void => {
@@ -93,28 +96,38 @@ export function useMediaAdaptation(options: MediaAdaptationOptions) {
   const observeMediaSample = useCallback(
     (summary: StatisticsSummary): void => {
       if (options.role === "viewer") {
-        const receiver = receiverRef.current;
-        receiver.cooldownSamples = Math.max(0, receiver.cooldownSamples - 1);
+        const session = options.mediasoupRef.current;
         const video = options.remoteVideoRef.current;
-        const waitingForFirstFrame =
-          options.mediasoupRef.current?.consumer?.track.readyState === "live" &&
-          video !== null &&
-          video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA;
-        const incompleteFrames = summary.mediaFlowState === "RTP packets without complete frames";
-        receiver.stalledSamples =
-          waitingForFirstFrame || incompleteFrames ? receiver.stalledSamples + 1 : 0;
-        if (
-          receiver.stalledSamples >= 4 &&
-          receiver.cooldownSamples === 0 &&
-          !operationRef.current
-        ) {
+        const action = receiverRef.current.observe({
+          compatibleVideoCodecs: options.compatibleVideoCodecs,
+          consumerId: session?.consumer?.id ?? null,
+          selectedVideoCodec: options.selectedVideoCodec,
+          summary,
+          videoHasCurrentData:
+            video !== null && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA,
+        });
+        if (summary.controllerState !== action.state) {
+          setControllerState(action.state);
+        }
+        if (action.type === "low-latency") {
+          session?.applyLowLatencyReceiverPolicy();
+        } else if (action.type !== "none" && session && !operationRef.current) {
           operationRef.current = true;
-          receiver.stalledSamples = 0;
-          receiver.cooldownSamples = 12;
-          options.setMediaStatus("Recovering the shared screen…");
-          void options.mediasoupRef.current
-            ?.restartConsuming()
-            .then(() => options.setMediaStatus("Receiving shared screen"))
+          options.setMediaStatus(
+            action.type === "fallback"
+              ? "Selecting a compatible video decoder…"
+              : "Recovering the shared screen…",
+          );
+          const recovery =
+            action.type === "fallback"
+              ? session.requestCodecFallback(action.codec)
+              : session.requestConsumerKeyFrame();
+          void recovery
+            .then(() => {
+              if (action.type === "keyframe") {
+                options.setMediaStatus("Waiting for a clean video frame…");
+              }
+            })
             .catch((error: unknown) => {
               options.setMediaStatus(
                 error instanceof Error ? error.message : "Could not recover the shared screen",
@@ -148,11 +161,13 @@ export function useMediaAdaptation(options: MediaAdaptationOptions) {
     },
     [
       applyHostAction,
+      options.compatibleVideoCodecs,
       options.hostSettings.bitrateUserEdited,
       options.mediasoupRef,
       options.producerSettingsRef,
       options.remoteVideoRef,
       options.role,
+      options.selectedVideoCodec,
       options.setMediaStatus,
       setControllerState,
     ],
@@ -160,7 +175,7 @@ export function useMediaAdaptation(options: MediaAdaptationOptions) {
 
   const resetMediaAdaptation = useCallback((): void => {
     controllerRef.current.reset();
-    receiverRef.current = { stalledSamples: 0, cooldownSamples: 0 };
+    receiverRef.current.reset();
     operationRef.current = false;
   }, []);
 

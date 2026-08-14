@@ -133,6 +133,8 @@ async function handleMessage(socket: WSContext, rawMessage: WSMessageReceive): P
     case "media.produce":
     case "media.consume":
     case "media.resumeConsumer":
+    case "media.requestConsumerKeyFrame":
+    case "media.requestCodecFallback":
     case "media.closeProducer":
     case "media.getServerStats":
       await handleMediaRequest(socket, message, mediaService);

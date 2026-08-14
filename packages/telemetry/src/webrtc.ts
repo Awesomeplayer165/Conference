@@ -316,6 +316,12 @@ export class WebRtcStatsNormalizer {
     const cumulativePackets =
       (numberValue(lossRecord, "packetsReceived") ?? 0) +
       (numberValue(lossRecord, "packetsLost") ?? 0);
+    const cumulativeFramesDecoded = inbound ? numberValue(inbound, "framesDecoded") : null;
+    const reportedKeyFramesDecoded = inbound ? numberValue(inbound, "keyFramesDecoded") : null;
+    const cumulativeKeyFramesDecoded =
+      cumulativeFramesDecoded === null || reportedKeyFramesDecoded === null
+        ? null
+        : Math.min(cumulativeFramesDecoded, reportedKeyFramesDecoded);
     const sample: Partial<StatisticsSummary> = {
       codec: stringValue(codec, "mimeType"),
       encoderTargetBitrateBps: outbound ? rounded(numberValue(outbound, "targetBitrate"), 0) : null,
@@ -343,9 +349,9 @@ export class WebRtcStatsNormalizer {
       pliCount: numberValue(media, "pliCount"),
       firCount: numberValue(media, "firCount"),
       framesEncoded: outbound ? numberValue(outbound, "framesEncoded") : null,
-      framesDecoded: inbound ? numberValue(inbound, "framesDecoded") : null,
+      framesDecoded: cumulativeFramesDecoded,
       keyFramesEncoded: outbound ? numberValue(outbound, "keyFramesEncoded") : null,
-      keyFramesDecoded: inbound ? numberValue(inbound, "keyFramesDecoded") : null,
+      keyFramesDecoded: cumulativeKeyFramesDecoded,
       packetSendDelayMsPerPacket: outbound ? rounded(packetSendDelayMsPerPacket) : null,
       qpAverage:
         qpDelta === null || framesDelta === null || framesDelta <= 0

@@ -13,6 +13,7 @@ import type { ClockOffsetEstimator } from "@conference/telemetry";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import type { DisplayCaptureSession } from "../capture/index.js";
 import type { ConnectionStatus } from "../components/ScreenShareView.js";
+import { switchHostProducerCodec } from "../media/hostCodecSwitch.js";
 import type { MediasoupSession, ProducerSettings } from "../media/MediasoupSession.js";
 
 export interface PendingMediaRequest {
@@ -245,6 +246,40 @@ export function openRoomConnection(options: OpenRoomConnectionOptions): WebSocke
           setStatusMessage("Connected — waiting for the shared screen");
         }
         break;
+      case "media.codecSwitchRequested": {
+        const session = mediasoupRef.current;
+        const capture = captureRef.current;
+        const settings = producerSettingsRef.current;
+        if (role !== "host") {
+          break;
+        }
+        const requestedCodec = result.data.requestedCodec;
+        setMediaStatus("Selecting a compatible video encoder…");
+        void switchHostProducerCodec({
+          capture,
+          currentProducerId: result.data.producerId,
+          requestedCodec,
+          session,
+          settings,
+        })
+          .then((nextSettings) => {
+            if (!nextSettings) {
+              setMediaStatus("Screen producer active");
+              return;
+            }
+            producerSettingsRef.current = nextSettings;
+            setSelectedVideoCodec(requestedCodec);
+            setMediaStatus(`${requestedCodec.replace("video/", "")} stream active`);
+            setStatusMessage("Sharing screen");
+            publishLifecycle("media.codecSwitched");
+          })
+          .catch((error: unknown) => {
+            setMediaStatus(
+              error instanceof Error ? error.message : "Could not switch the video codec",
+            );
+          });
+        break;
+      }
       case "media.error":
         setMediaStatus(result.data.message);
         break;

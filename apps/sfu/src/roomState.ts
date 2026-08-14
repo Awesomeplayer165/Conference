@@ -25,6 +25,7 @@ export interface RoomState {
   producerId?: string;
   producerCodec?: VideoCodec;
   producerHdrMetadata?: HdrMetadata;
+  pendingCodecSwitch?: VideoCodec;
 }
 
 export interface ConnectionMetadata {
@@ -191,6 +192,7 @@ export function handleLeave(
     delete room.producerId;
     delete room.producerCodec;
     delete room.producerHdrMetadata;
+    delete room.pendingCodecSwitch;
   }
   clearPeer(room, metadata.role);
   const other = peerForRole(room, oppositeRole(metadata.role));

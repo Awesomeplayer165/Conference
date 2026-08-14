@@ -19,13 +19,14 @@ import type {
   TransportOptions,
 } from "mediasoup-client/types";
 import { recommendH264StartupBitrateKbps } from "./h264Bitrate.js";
+import { requestCodecFallback, requestConsumerKeyFrame } from "./mediaRecoveryProtocol.js";
 import {
   expectMediaResponse,
   findNegotiatedCodec,
   mediaRequestId,
 } from "./mediaSessionProtocol.js";
 import { degradationPreferenceForContent } from "./producerPolicy.js";
-import { applyLowLatencyReceiverPolicy } from "./receiverPolicy.js";
+import { applyAdaptiveReceiverPolicy, applyLowLatencyReceiverPolicy } from "./receiverPolicy.js";
 import { displayVideoCodec } from "./videoCodecs.js";
 
 export type MediaRequester = (message: MediaRequestMessage) => Promise<MediaResponseMessage>;
@@ -128,7 +129,7 @@ export class MediasoupSession {
       this.#sendTransport = await this.#createTransport("send");
       this.#wireSendTransport(this.#sendTransport);
     }
-    this.#producer?.close();
+    const previousProducer = this.#producer;
     this.#producerHdrMetadata = settings.hdrMetadata;
 
     const codec = findNegotiatedCodec(device.sendRtpCapabilities.codecs, selectedCodec);
@@ -161,6 +162,7 @@ export class MediasoupSession {
       appData: { source: "screen" },
     });
     this.#producer = producer;
+    previousProducer?.close();
     await this.#applySenderPolicy(producer, settings.contentMode);
     producer.on("transportclose", () => {
       if (this.#producer === producer) {
@@ -258,12 +260,32 @@ export class MediasoupSession {
     return this.#enqueueConsumer(() => this.#consume(producerId, hdrMetadata));
   }
 
-  async restartConsuming(): Promise<void> {
-    const target = this.#consumerTarget;
-    if (!target) {
-      throw new Error("No screen producer is available to reconnect");
+  async requestConsumerKeyFrame(): Promise<void> {
+    const consumer = this.#consumer;
+    if (!consumer || consumer.closed) {
+      throw new Error("No active screen receiver is available");
     }
-    return this.consume(target.producerId, target.hdrMetadata);
+    const policy = applyAdaptiveReceiverPolicy(consumer);
+    this.#jitterBufferTargetMs = policy.jitterBufferTargetMs;
+    await requestConsumerKeyFrame(this.#request, consumer.id);
+  }
+
+  async requestCodecFallback(requestedCodec: VideoCodec): Promise<void> {
+    const consumer = this.#consumer;
+    if (!consumer || consumer.closed) {
+      throw new Error("No active screen receiver is available");
+    }
+    await requestCodecFallback(this.#request, consumer.id, requestedCodec);
+  }
+
+  applyLowLatencyReceiverPolicy(): boolean {
+    const consumer = this.#consumer;
+    if (!consumer || consumer.closed) {
+      return false;
+    }
+    const policy = applyLowLatencyReceiverPolicy(consumer);
+    this.#jitterBufferTargetMs = policy.jitterBufferTargetMs;
+    return policy.accepted;
   }
 
   async #consume(producerId: string, hdrMetadata?: HdrMetadata): Promise<void> {
@@ -271,7 +293,7 @@ export class MediasoupSession {
     const device = this.#requiredDevice();
     if (!this.#recvTransport) {
       this.#recvTransport = await this.#createTransport("recv");
-      this.#wireRecvTransport(this.#recvTransport);
+      this.#wireConnect(this.#recvTransport);
     }
     this.stopConsuming();
     this.#consumerTarget = { producerId, ...(hdrMetadata ? { hdrMetadata } : {}) };
@@ -293,10 +315,10 @@ export class MediasoupSession {
       rtpParameters: response.consumer.rtpParameters as unknown as RtpParameters,
     });
     try {
-      const receiverPolicy = applyLowLatencyReceiverPolicy(consumer);
+      const receiverPolicy = applyAdaptiveReceiverPolicy(consumer);
       this.#jitterBufferTargetMs = receiverPolicy.jitterBufferTargetMs;
       if (!receiverPolicy.accepted) {
-        this.#callbacks.onState("Browser did not accept the low-latency receive target");
+        this.#callbacks.onState("Browser did not accept adaptive receive buffering");
       }
       expectMediaResponse(
         await this.#request({
@@ -394,10 +416,6 @@ export class MediasoupSession {
         .then(({ producerId }) => callback({ id: producerId }))
         .catch(errback);
     });
-  }
-
-  #wireRecvTransport(transport: Transport): void {
-    this.#wireConnect(transport);
   }
 
   #wireConnect(transport: Transport): void {

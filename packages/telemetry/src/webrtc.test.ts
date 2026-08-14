@@ -247,6 +247,7 @@ describe("WebRTC telemetry normalization", () => {
           packetsReceived: 10,
           packetsLost: 0,
           framesDecoded: 0,
+          keyFramesDecoded: 3,
           frameWidth: 0,
           frameHeight: 0,
           framesPerSecond: 0,
@@ -261,6 +262,7 @@ describe("WebRTC telemetry normalization", () => {
       decodedWidth: null,
       decodedHeight: null,
       decodeFps: 0,
+      keyFramesDecoded: 0,
       estimatedLatencyMs: null,
       latencyP50Ms: null,
     });

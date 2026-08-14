@@ -93,6 +93,35 @@ describe("signaling round-trips", () => {
       producerId: "producer-1",
     });
   });
+
+  it("parses bounded receiver recovery messages", () => {
+    expect(
+      parseClientMessage({
+        type: "media.requestConsumerKeyFrame",
+        protocolVersion: PROTOCOL_VERSION,
+        requestId: "request-keyframe",
+        consumerId: "consumer-1",
+      }),
+    ).toMatchObject({ type: "media.requestConsumerKeyFrame", consumerId: "consumer-1" });
+    expect(
+      parseClientMessage({
+        type: "media.requestCodecFallback",
+        protocolVersion: PROTOCOL_VERSION,
+        requestId: "request-fallback",
+        consumerId: "consumer-1",
+        requestedCodec: "video/H264",
+      }),
+    ).toMatchObject({ type: "media.requestCodecFallback", requestedCodec: "video/H264" });
+    expect(
+      parseServerMessage({
+        type: "media.codecSwitchRequested",
+        protocolVersion: PROTOCOL_VERSION,
+        producerId: "producer-1",
+        requestedCodec: "video/H264",
+        reason: "decode-failure",
+      }),
+    ).toMatchObject({ type: "media.codecSwitchRequested", reason: "decode-failure" });
+  });
 });
 
 describe("telemetry round-trips", () => {

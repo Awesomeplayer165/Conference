@@ -81,12 +81,14 @@ export function App() {
   selectedVideoCodecRef.current = selectedVideoCodec;
   const { observeMediaSample, resetMediaAdaptation } = useMediaAdaptation({
     captureRef,
+    compatibleVideoCodecs,
     hostSettings,
     localStatisticsRef,
     mediasoupRef,
     producerSettingsRef,
     remoteVideoRef,
     role,
+    selectedVideoCodec,
     selectedVideoCodecRef,
     setLocalStatistics,
     setMediaStatus,
